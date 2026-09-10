@@ -12,7 +12,8 @@ pub fn snippet(shell: &str) -> Option<&'static str> {
         "bash" => {
             r#"# reverie: terminal screensaver when the prompt sits idle
 if [[ $- == *i* ]] && [ -t 0 ] && [ -z "${REVERIE_DISABLE-}" ] && command -v reverie >/dev/null 2>&1; then
-  __reverie_alrm() { command reverie run --idle-trigger "$$"; }
+  # SIGWINCH afterwards makes readline repaint the half-typed line (verified in a pty)
+  __reverie_alrm() { command reverie run --idle-trigger "$$"; kill -WINCH $$ 2>/dev/null; }
   trap '__reverie_alrm' ALRM
   command reverie watch --pid "$$" --daemon
 fi

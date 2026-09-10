@@ -1,0 +1,4 @@
+{"scene":"ufo","cols":200,"rows":55,"frames":600,"frame_mean_ms":0.369,"frame_p95_ms":0.403,"frame_max_ms":0.774,"bytes_mean_kb":23.46,"bytes_p95_kb":33.53,"first_frame_kb":105.0,"peak_rss_mb":4.0}
+{"scene":"galaxy","cols":200,"rows":55,"frames":600,"frame_mean_ms":2.728,"frame_p95_ms":4.020,"frame_max_ms":4.622,"bytes_mean_kb":32.94,"bytes_p95_kb":34.79,"first_frame_kb":228.9,"peak_rss_mb":6.2}
+{"scene":"garden","cols":200,"rows":55,"frames":600,"frame_mean_ms":0.451,"frame_p95_ms":0.472,"frame_max_ms":0.524,"bytes_mean_kb":4.93,"bytes_p95_kb":6.73,"first_frame_kb":125.9,"peak_rss_mb":6.2}
+{"scene":"meadow","cols":200,"rows":55,"frames":600,"frame_mean_ms":0.525,"frame_p95_ms":0.552,"frame_max_ms":0.922,"bytes_mean_kb":15.83,"bytes_p95_kb":17.82,"first_frame_kb":194.1,"peak_rss_mb":6.2}
