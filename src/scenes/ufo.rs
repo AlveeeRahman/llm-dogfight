@@ -1,8 +1,16 @@
-//! UFO dogfight. Two saucer factions with steering-behaviour pilots:
-//! pursue (with lead prediction) / orbit at engagement range / flee + jink when
-//! damaged / wander / abduct a cow when nobody is shooting at them.
+//! UFO dogfight. Two saucer factions. Every ship flies under an *order*
+//! (attack / hunt / flee / abduct / guard / patrol) that the steering behaviours here
+//! execute: lead pursuit, orbiting at engagement range, jinking, ally separation,
+//! world bounds. Who issues the orders is the "pilots" choice:
+//!
+//!   builtin — the heuristic commander in `builtin_order` (deterministic; bench/snapshot)
+//!   lm      — two small language models in the arena sidecar (src/arena.rs), one per
+//!             team. Each team starts with 4 saucers; a destroyed one stays down until its
+//!             commander orders `DEPLOY`. Their one-line comms show in the HUD.
 use super::{Scene, Starfield};
+use crate::arena::{json_str, Arena, Msg, Order};
 use crate::canvas::Canvas;
+use crate::config::Config;
 use crate::math::{gradient, vnoise, Rgb};
 use crate::rng::Rng;
 use std::f32::consts::TAU;
@@ -11,6 +19,7 @@ const TEAM_COL: [Rgb; 2] = [Rgb::hex(0x3cf0d8), Rgb::hex(0xff5aa8)];
 const TEAM_NAME: [&str; 2] = ["ZORB", "KRELL"];
 const STEEL_HI: Rgb = Rgb::hex(0xd6dee9);
 const STEEL_LO: Rgb = Rgb::hex(0x4b5566);
+const LM_FLEET: usize = 4;
 
 #[derive(Clone)]
 struct Ship {
@@ -24,12 +33,19 @@ struct Ship {
     alive: bool,
     respawn: f32,
     cooldown: f32,
+    order: Order,
+    /// who this ship is shooting at (derived from the order each frame)
     target: Option<usize>,
     phase: f32,
     warp: f32,
     flash: f32,
     abduct: Option<usize>,
     bored: f32,
+    /// for post-mortems (evolve mode): when it warped in, how long it flew below 35 hp,
+    /// and who hit it last
+    born: f32,
+    low_for: f32,
+    last_hit_by: Option<usize>,
 }
 struct Bolt {
     x: f32,
@@ -38,6 +54,7 @@ struct Bolt {
     vy: f32,
     life: f32,
     team: usize,
+    from: usize,
 }
 #[derive(Clone, Copy, PartialEq)]
 enum PK {
@@ -78,6 +95,27 @@ struct Cow {
     dir: f32,
 }
 
+/// State of the language-model commanders (only in `lm` mode).
+struct Lm {
+    link: Option<Arena>,
+    ready: [Option<String>; 2],
+    pending: [bool; 2],
+    since: [f32; 2],
+    wait: [f32; 2],
+    tick: [u32; 2],
+    say: [String; 2],
+    status: String,
+    events: [Vec<String>; 2],
+    no_ships: [f32; 2],
+    think: f32,
+    evolve: bool,
+    lesson: [String; 2],
+    lesson_age: [f32; 2],
+    /// a saucer of this team died since its last orders: the next prompt asks for a battle cry
+    cry_due: [bool; 2],
+    say_age: [f32; 2],
+}
+
 pub struct Ufo {
     rng: Rng,
     w: f32,
@@ -93,13 +131,55 @@ pub struct Ufo {
     cows: Vec<Cow>,
     stars: Starfield,
     score: [u32; 2],
+    lm: Option<Lm>,
 }
 
 impl Ufo {
     pub fn new(seed: u64) -> Self {
         let mut rng = Rng::new(seed);
         let stars = Starfield::new(&mut rng, 1, 1, 0.0, 1.0);
-        Ufo { rng, w: 1.0, h: 1.0, t: 0.0, s: 4.0, ground: 1.0, ships: vec![], bolts: vec![], parts: vec![], rings: vec![], city: vec![], cows: vec![], stars, score: [0; 2] }
+        Ufo { rng, w: 1.0, h: 1.0, t: 0.0, s: 4.0, ground: 1.0, ships: vec![], bolts: vec![], parts: vec![], rings: vec![], city: vec![], cows: vec![], stars, score: [0; 2], lm: None }
+    }
+
+    /// Two language models command the teams (see agents/arena.py). If the sidecar cannot
+    /// start, the built-in pilots fly and the HUD says why.
+    pub fn with_arena(seed: u64, cfg: &Config) -> Self {
+        let mut u = Self::new(seed);
+        let mut lm = Lm {
+            link: None,
+            ready: [None, None],
+            pending: [false; 2],
+            since: [0.0; 2],
+            wait: [0.0; 2],
+            tick: [0; 2],
+            say: [String::new(), String::new()],
+            status: String::new(),
+            events: [vec![], vec![]],
+            no_ships: [0.0; 2],
+            think: cfg.lm_think_seconds.max(0.2),
+            evolve: cfg.lm_evolve,
+            lesson: [String::new(), String::new()],
+            lesson_age: [0.0; 2],
+            cry_due: [false; 2],
+            say_age: [0.0; 2],
+        };
+        match Arena::spawn(cfg) {
+            Ok(a) => {
+                lm.link = Some(a);
+                lm.status = "arena: starting commanders".into();
+            }
+            Err(e) => lm.status = format!("arena: {e} (built-in pilots)"),
+        }
+        u.lm = Some(lm);
+        u
+    }
+
+    fn lm_mode(&self) -> bool {
+        self.lm.as_ref().map_or(false, |l| l.link.is_some())
+    }
+    /// True when this team's orders come from its language model.
+    fn commanded(&self, team: usize) -> bool {
+        self.lm.as_ref().map_or(false, |l| l.link.is_some() && l.ready[team].is_some())
     }
 
     fn max_speed(&self) -> f32 {
@@ -119,13 +199,58 @@ impl Ufo {
             alive: true,
             respawn: 0.0,
             cooldown: self.rng.range(0.5, 2.0),
+            order: Order::Patrol,
             target: None,
             phase: self.rng.range(0.0, TAU),
             warp: 1.0,
             flash: 0.0,
             abduct: None,
             bored: self.rng.range(3.0, 9.0),
+            born: self.t,
+            low_for: 0.0,
+            last_hit_by: None,
         }
+    }
+
+    /// Evolve mode: tell the losing commander exactly how its saucer died.
+    fn post_mortem(&mut self, j: usize, killer: usize) {
+        // only for saucers the model itself was commanding, and only in evolve mode
+        if !self.commanded(self.ships[j].team) || !self.lm.as_ref().map_or(false, |l| l.evolve) {
+            return;
+        }
+        let range = self.s * 16.0;
+        let k = 100.0 / self.w;
+        let v = self.ships[j].clone();
+        let d = self.dist(j, killer);
+        let enemies_near = self.ships.iter().filter(|o| o.alive && o.team != v.team && ((o.x - v.x).powi(2) + (o.y - v.y).powi(2)).sqrt() < range).count();
+        let allies_near = self.ships.iter().filter(|o| o.alive && o.team == v.team && o.id != v.id && ((o.x - v.x).powi(2) + (o.y - v.y).powi(2)).sqrt() < range).count();
+        let killer_hp = self.ships[killer].hp.round().max(1.0) as i32;
+        let line = format!(
+            "{{\"t\":\"loss\",\"team\":{},\"ship\":{},\"killer\":{},\"killer_hp\":{killer_hp},\"dist\":{},\"range\":{},\"order\":{},\"enemies_near\":{enemies_near},\"allies_near\":{allies_near},\"low_for\":{:.0},\"alive_for\":{:.0},\"x\":{},\"y\":{},\"ground\":{}}}",
+            v.team,
+            v.id,
+            self.ships[killer].id,
+            (d * k).round() as i32,
+            (range * k).round() as i32,
+            json_str(&v.order.describe()),
+            v.low_for,
+            self.t - v.born,
+            (v.x * k).round() as i32,
+            (v.y * k).round() as i32,
+            (self.ground * k).round() as i32
+        );
+        if let Some(link) = self.lm.as_mut().and_then(|l| l.link.as_mut()) {
+            link.send(&line);
+        }
+    }
+
+    /// Warp a fresh saucer in for slot `i` (its previous occupant was destroyed).
+    fn deploy(&mut self, i: usize) {
+        let (team, id) = (self.ships[i].team, self.ships[i].id);
+        let mut ns = self.spawn_ship(team, id);
+        ns.y = self.rng.range(0.12, 0.35) * self.ground;
+        ns.warp = 0.0;
+        self.ships[i] = ns;
     }
 
     fn explode(&mut self, x: f32, y: f32, col: Rgb) {
@@ -159,12 +284,14 @@ impl Ufo {
         }
     }
 
-    fn steer(&mut self, i: usize, dt: f32) {
-        let s = self.s;
-        let maxv = self.max_speed() * if self.ships[i].team == 1 { 1.05 } else { 1.0 };
-        let range = s * 16.0;
-        let me = self.ships[i].clone();
-        // nearest enemy
+    fn dist(&self, a: usize, b: usize) -> f32 {
+        let (p, q) = (&self.ships[a], &self.ships[b]);
+        ((p.x - q.x).powi(2) + (p.y - q.y).powi(2)).sqrt()
+    }
+
+    /// Nearest enemy that is fully warped in.
+    fn nearest_enemy(&self, i: usize) -> Option<(usize, f32)> {
+        let me = &self.ships[i];
         let mut best: Option<(usize, f32)> = None;
         for (j, o) in self.ships.iter().enumerate() {
             if o.alive && o.team != me.team && o.warp >= 1.0 {
@@ -174,94 +301,170 @@ impl Ufo {
                 }
             }
         }
-        let mut target = me.target.filter(|&t| self.ships[t].alive && self.ships[t].team != me.team);
+        best
+    }
+
+    fn cow_free_for(&self, c: usize, i: usize) -> bool {
+        c < self.cows.len() && self.cows[c].gone <= 0.0 && !self.ships.iter().enumerate().any(|(j, o)| j != i && o.alive && o.abduct == Some(c))
+    }
+
+    /// The heuristic commander: what the built-in pilots did in v0.1, expressed as an order.
+    fn builtin_order(&mut self, i: usize) -> Order {
+        let range = self.s * 16.0;
+        let me = self.ships[i].clone();
+        let best = self.nearest_enemy(i);
+        let threat_d = best.map_or(f32::MAX, |b| b.1);
+        // sticky target: keep it unless a much closer enemy shows up
+        let mut target = match me.order {
+            Order::Attack(t) if t < self.ships.len() && self.ships[t].alive && self.ships[t].team != me.team => Some(t),
+            _ => None,
+        };
         if let Some((bj, bd)) = best {
-            let keep = target.map(|t| {
-                let o = &self.ships[t];
-                ((o.x - me.x).powi(2) + (o.y - me.y).powi(2)).sqrt()
-            });
+            let keep = target.map(|t| self.dist(i, t));
             if keep.map_or(true, |kd| bd < kd * 0.6) {
                 target = Some(bj);
             }
         }
-        let threat_d = best.map_or(f32::MAX, |b| b.1);
-        let (mut dx, mut dy);
-        let mut abduct = me.abduct;
-        if abduct.is_some() && (threat_d < range * 0.9 || me.hp < 100.0 && me.flash > 0.5) {
-            abduct = None;
-        }
-        if abduct.is_none() && threat_d > range * 1.6 && me.bored <= 0.0 {
-            // pick a grazing cow
-            let free: Vec<usize> = (0..self.cows.len()).filter(|&c| self.cows[c].gone <= 0.0 && self.cows[c].lift <= 0.0 && !self.ships.iter().any(|o| o.abduct == Some(c))).collect();
+        if let Order::Abduct(c) = me.order {
+            let disturbed = threat_d < range * 0.9 || (me.hp < 100.0 && me.flash > 0.5);
+            if self.cow_free_for(c, i) && !disturbed {
+                return Order::Abduct(c);
+            }
+        } else if threat_d > range * 1.6 && me.bored <= 0.0 {
+            let free: Vec<usize> = (0..self.cows.len()).filter(|&c| self.cows[c].lift <= 0.0 && self.cow_free_for(c, i)).collect();
             if !free.is_empty() {
-                abduct = Some(free[self.rng.below(free.len())]);
+                return Order::Abduct(free[self.rng.below(free.len())]);
             }
         }
-        if let Some(c) = abduct {
-            let cow = &self.cows[c];
-            let hover_y = self.ground - s * 7.0;
-            dx = cow.x - me.x;
-            dy = hover_y - me.y;
-            let d = (dx * dx + dy * dy).sqrt();
-            if d < s * 1.5 {
-                dx *= 0.2;
-                dy *= 0.2;
-                self.cows[c].lift += dt * 0.35;
-                if self.cows[c].lift >= 1.0 {
-                    self.cows[c].lift = 0.0;
-                    self.cows[c].gone = self.rng.range(6.0, 14.0);
-                    self.rings.push(Ring { x: me.x, y: me.y, r: s, speed: s * 3.0, life: 0.5, col: TEAM_COL[me.team] });
-                    abduct = None;
-                    self.ships[i].bored = self.rng.range(8.0, 20.0);
-                }
-            }
-        } else if me.hp < 35.0 && threat_d < range * 0.8 {
-            let o = &self.ships[best.unwrap().0];
-            dx = me.x - o.x;
-            dy = me.y - o.y;
-            let n = (dx * dx + dy * dy).sqrt().max(0.01);
-            let jink = (self.t * 7.0 + me.phase).sin();
-            let (ux, uy) = (dx / n, dy / n);
-            dx = ux - uy * jink * 0.8;
-            dy = uy + ux * jink * 0.8;
-        } else if let Some(tg) = target {
-            let o = self.ships[tg].clone();
+        if me.hp < 35.0 && threat_d < range * 0.8 {
+            return Order::Flee;
+        }
+        match target {
+            Some(t) => Order::Attack(t),
+            None => Order::Patrol,
+        }
+    }
+
+    /// Fly one frame under the ship's order: pick a desired direction, maybe fire, then
+    /// apply ally separation, world bounds and acceleration limits.
+    fn execute(&mut self, i: usize, dt: f32) {
+        let s = self.s;
+        let n = self.ships.len();
+        let me = self.ships[i].clone();
+        let maxv = self.max_speed() * if me.team == 1 { 1.05 } else { 1.0 };
+        let range = s * 16.0;
+        let best = self.nearest_enemy(i);
+        // validate the order against the world (targets die, cows get taken); degrade to hunt
+        let mut order = match me.order {
+            Order::Attack(t) if !(t < n && self.ships[t].alive && self.ships[t].team != me.team && self.ships[t].warp >= 1.0) => Order::Hunt,
+            Order::Guard(a) if !(a < n && a != i && self.ships[a].alive && self.ships[a].team == me.team) => Order::Hunt,
+            Order::Abduct(c) if !self.cow_free_for(c, i) => Order::Hunt,
+            o => o,
+        };
+        let wander = |t: f32, id: usize| {
+            let a = vnoise(t * 0.15, id as f32 * 7.3, 11) * TAU * 2.0;
+            (a.cos(), a.sin() * 0.6)
+        };
+        let engage = |o: &Ship| {
+            // lead pursuit until 75% of range, then orbit at half range
             let px = o.x + o.vx * 0.5;
             let py = o.y + o.vy * 0.5;
-            dx = px - me.x;
-            dy = py - me.y;
+            let (dx, dy) = (px - me.x, py - me.y);
             let d = (dx * dx + dy * dy).sqrt().max(0.01);
             let (ux, uy) = (dx / d, dy / d);
             if d > range * 0.75 {
-                dx = ux;
-                dy = uy;
+                (ux, uy)
             } else {
                 let side = if me.id % 2 == 0 { 1.0 } else { -1.0 };
                 let radial = (d - range * 0.5) / (range * 0.5);
-                dx = -uy * side + ux * radial;
-                dy = ux * side + uy * radial;
+                (-uy * side + ux * radial, ux * side + uy * radial)
             }
-            // fire
-            self.ships[i].cooldown -= dt;
+        };
+        let (mut dx, mut dy);
+        let mut fire_at: Option<usize> = None;
+        let mut abduct: Option<usize> = None;
+        match order {
+            Order::Abduct(c) => {
+                abduct = Some(c);
+                let cow = &self.cows[c];
+                let hover_y = self.ground - s * 7.0;
+                dx = cow.x - me.x;
+                dy = hover_y - me.y;
+                let d = (dx * dx + dy * dy).sqrt();
+                if d < s * 1.5 {
+                    dx *= 0.2;
+                    dy *= 0.2;
+                    self.cows[c].lift += dt * 0.35;
+                    if self.cows[c].lift >= 1.0 {
+                        self.cows[c].lift = 0.0;
+                        self.cows[c].gone = self.rng.range(6.0, 14.0);
+                        self.rings.push(Ring { x: me.x, y: me.y, r: s, speed: s * 3.0, life: 0.5, col: TEAM_COL[me.team] });
+                        abduct = None;
+                        order = Order::Patrol;
+                        self.ships[i].bored = self.rng.range(8.0, 20.0);
+                        self.event(me.team, format!("your S{} abducted cow C{c}", me.id));
+                        self.event(1 - me.team, format!("enemy E{} abducted cow C{c}", me.id));
+                    }
+                }
+            }
+            Order::Flee => match best {
+                Some((e, _)) => {
+                    let o = &self.ships[e];
+                    let (fx, fy) = (me.x - o.x, me.y - o.y);
+                    let nn = (fx * fx + fy * fy).sqrt().max(0.01);
+                    let jink = (self.t * 7.0 + me.phase).sin();
+                    let (ux, uy) = (fx / nn, fy / nn);
+                    dx = ux - uy * jink * 0.8;
+                    dy = uy + ux * jink * 0.8;
+                }
+                None => (dx, dy) = wander(self.t, me.id),
+            },
+            Order::Attack(t) => {
+                (dx, dy) = engage(&self.ships[t]);
+                fire_at = Some(t);
+            }
+            Order::Hunt => match best {
+                Some((e, _)) => {
+                    (dx, dy) = engage(&self.ships[e]);
+                    fire_at = Some(e);
+                }
+                None => (dx, dy) = wander(self.t, me.id),
+            },
+            Order::Guard(a) => {
+                let o = &self.ships[a];
+                let ang = me.id as f32 * 2.1 + self.t * 0.3;
+                let (gx, gy) = (o.x + ang.cos() * s * 3.5, o.y + ang.sin() * s * 2.0);
+                dx = gx - me.x;
+                dy = gy - me.y;
+                let d = (dx * dx + dy * dy).sqrt().max(0.01);
+                let k = (d / (s * 3.0)).min(1.0);
+                dx = dx / d * k;
+                dy = dy / d * k;
+                fire_at = best.filter(|&(_, d)| d < range).map(|b| b.0);
+            }
+            Order::Patrol => {
+                (dx, dy) = wander(self.t, me.id);
+                fire_at = best.filter(|&(_, d)| d < range).map(|b| b.0);
+            }
+        }
+        // fire
+        self.ships[i].cooldown -= dt;
+        if let Some(t) = fire_at {
+            let o = self.ships[t].clone();
+            let d = self.dist(i, t);
             if d < range && self.ships[i].cooldown <= 0.0 && me.warp >= 1.0 {
                 let bs = s * 22.0;
                 let tt = d / bs;
                 let ax = o.x + o.vx * tt - me.x;
                 let ay = o.y + o.vy * tt - me.y;
                 let an = ay.atan2(ax) + self.rng.gauss() * 0.12;
-                self.bolts.push(Bolt { x: me.x, y: me.y, vx: an.cos() * bs, vy: an.sin() * bs, life: 1.6, team: me.team });
+                self.bolts.push(Bolt { x: me.x, y: me.y, vx: an.cos() * bs, vy: an.sin() * bs, life: 1.6, team: me.team, from: i });
                 self.ships[i].cooldown = self.rng.range(0.45, 1.2);
             }
-        } else {
-            let a = vnoise(self.t * 0.15, me.id as f32 * 7.3, 11) * TAU * 2.0;
-            dx = a.cos();
-            dy = a.sin() * 0.6;
         }
+        self.ships[i].order = order;
         self.ships[i].abduct = abduct;
-        self.ships[i].target = target;
-        if abduct.is_none() {
-            self.ships[i].bored -= dt;
-        }
+        self.ships[i].target = fire_at;
         // separation from allies
         for o in self.ships.iter() {
             if o.id != me.id && o.alive && o.team == me.team {
@@ -289,8 +492,8 @@ impl Ufo {
         if me.y > floor {
             dy -= (me.y - floor) / m * 3.0;
         }
-        let n = (dx * dx + dy * dy).sqrt().max(0.001);
-        let (tx, ty) = (dx / n * maxv, dy / n * maxv);
+        let nn = (dx * dx + dy * dy).sqrt().max(0.001);
+        let (tx, ty) = (dx / nn * maxv, dy / nn * maxv);
         let acc = maxv * 1.8 * dt;
         let (mut sx, mut sy) = (tx - me.vx, ty - me.vy);
         let sn = (sx * sx + sy * sy).sqrt();
@@ -303,6 +506,198 @@ impl Ufo {
         sh.vy += sy;
         sh.x += sh.vx * dt;
         sh.y += sh.vy * dt;
+    }
+
+    fn event(&mut self, team: usize, what: String) {
+        if let Some(lm) = self.lm.as_mut() {
+            let ev = &mut lm.events[team];
+            if ev.len() >= 6 {
+                ev.remove(0);
+            }
+            ev.push(what);
+        }
+    }
+
+    // ------------------------------------------------------------ language-model commanders
+
+    /// Everything one commander gets to see, as one JSON line. Coordinates are in
+    /// percent of the field width so the numbers are small and comparable.
+    fn observation(&self, team: usize, tick: u32) -> String {
+        let k = 100.0 / self.w;
+        let pc = |v: f32| (v * k).round() as i32;
+        let lm = self.lm.as_ref().unwrap();
+        let mut o = String::with_capacity(1024);
+        o.push_str(&format!(
+            "{{\"t\":\"obs\",\"team\":{team},\"tick\":{tick},\"score\":[{},{}],\"fh\":{},\"ground\":{},\"range\":{},\"free_slots\":{},\"mine\":[",
+            self.score[0],
+            self.score[1],
+            pc(self.h),
+            pc(self.ground),
+            pc(self.s * 16.0),
+            self.ships.iter().filter(|s| s.team == team && !s.alive).count()
+        ));
+        let mut first = true;
+        for (i, s) in self.ships.iter().enumerate() {
+            if s.team != team || !s.alive {
+                continue;
+            }
+            let (near, dist) = self.nearest_enemy(i).map_or((-1, -1), |(e, d)| (e as i32, pc(d)));
+            if !first {
+                o.push(',');
+            }
+            first = false;
+            o.push_str(&format!(
+                "{{\"id\":{},\"x\":{},\"y\":{},\"hp\":{},\"near\":{near},\"dist\":{dist},\"order\":{}}}",
+                s.id,
+                pc(s.x),
+                pc(s.y),
+                s.hp.round().max(1.0) as i32,
+                json_str(&s.order.describe())
+            ));
+        }
+        o.push_str("],\"foes\":[");
+        first = true;
+        for s in self.ships.iter() {
+            if s.team == team || !s.alive || s.warp < 1.0 {
+                continue;
+            }
+            let tg = s.target.filter(|&t| self.ships[t].team == team).map_or(-1, |t| t as i32);
+            if !first {
+                o.push(',');
+            }
+            first = false;
+            o.push_str(&format!("{{\"id\":{},\"x\":{},\"y\":{},\"hp\":{},\"target\":{tg}}}", s.id, pc(s.x), pc(s.y), s.hp.round().max(1.0) as i32));
+        }
+        o.push_str("],\"cows\":[");
+        first = true;
+        for (ci, c) in self.cows.iter().enumerate() {
+            if c.gone > 0.0 {
+                continue;
+            }
+            let state = match self.ships.iter().find(|o| o.alive && o.abduct == Some(ci)) {
+                Some(l) if l.team == team => format!("being lifted by your S{}", l.id),
+                Some(l) => format!("being lifted by enemy E{}", l.id),
+                None => "free".into(),
+            };
+            if !first {
+                o.push(',');
+            }
+            first = false;
+            o.push_str(&format!("{{\"id\":{ci},\"x\":{},\"state\":{}}}", pc(c.x), json_str(&state)));
+        }
+        o.push_str("],\"events\":[");
+        o.push_str(&lm.events[team].iter().map(|e| json_str(e)).collect::<Vec<_>>().join(","));
+        o.push_str(&format!("],\"foe_say\":{},\"cry\":{}}}", json_str(&lm.say[1 - team]), lm.cry_due[team]));
+        o
+    }
+
+    fn lm_poll(&mut self) {
+        let msgs = match self.lm.as_mut().and_then(|l| l.link.as_mut()) {
+            Some(link) => link.poll(),
+            None => return,
+        };
+        let mut to_deploy = vec![];
+        let lm = self.lm.as_mut().unwrap();
+        for m in msgs {
+            match m {
+                Msg::Status(s) => lm.status = format!("arena: {s}"),
+                Msg::Ready { team, label, gb } => {
+                    lm.ready[team] = Some(label);
+                    lm.status = if lm.ready.iter().all(|r| r.is_some()) { format!("arena: both commanders online, {gb:.1} GB") } else { format!("arena: {} online", TEAM_NAME[team]) };
+                    lm.since[team] = lm.think; // ask right away
+                }
+                Msg::Orders { team, orders, say, deploy } => {
+                    lm.pending[team] = false;
+                    lm.wait[team] = 0.0;
+                    if !say.is_empty() {
+                        lm.say[team] = say;
+                        lm.say_age[team] = 0.0;
+                    }
+                    lm.status.clear();
+                    for (id, o) in orders {
+                        if let Some(sh) = self.ships.iter_mut().find(|s| s.id == id && s.team == team && s.alive) {
+                            sh.order = o;
+                        }
+                    }
+                    to_deploy.extend(self.ships.iter().enumerate().filter(|(_, s)| s.team == team && !s.alive).map(|(i, _)| i).take(deploy));
+                }
+                Msg::Lesson { team, text } => {
+                    lm.lesson[team] = text;
+                    lm.lesson_age[team] = 0.0;
+                }
+                Msg::Error(e) => {
+                    lm.status = format!("arena error: {e} (built-in pilots)");
+                    lm.link = None;
+                    lm.ready = [None, None];
+                    break;
+                }
+                Msg::Exited => {
+                    if lm.link.is_some() {
+                        lm.status = "arena exited (see arena.log); built-in pilots".into();
+                        lm.link = None;
+                        lm.ready = [None, None];
+                    }
+                    break;
+                }
+            }
+        }
+        for i in to_deploy {
+            self.deploy(i);
+        }
+    }
+
+    fn lm_send(&mut self, dt: f32) {
+        if !self.lm_mode() {
+            return;
+        }
+        let mut todo = vec![];
+        {
+            let lm = self.lm.as_mut().unwrap();
+            for team in 0..2 {
+                lm.since[team] += dt;
+                lm.lesson_age[team] += dt;
+                lm.say_age[team] += dt;
+                if lm.pending[team] {
+                    lm.wait[team] += dt;
+                    if lm.wait[team] > 60.0 {
+                        lm.pending[team] = false; // the sidecar is stuck; try again
+                    }
+                    continue;
+                }
+                if lm.ready[team].is_some() && lm.since[team] >= lm.think {
+                    lm.tick[team] += 1;
+                    todo.push((team, lm.tick[team]));
+                }
+            }
+        }
+        for (team, tick) in todo {
+            let obs = self.observation(team, tick);
+            let lm = self.lm.as_mut().unwrap();
+            if lm.link.as_mut().map_or(false, |l| l.send(&obs)) {
+                lm.pending[team] = true;
+                lm.wait[team] = 0.0;
+                lm.since[team] = 0.0;
+                lm.events[team].clear();
+                lm.cry_due[team] = false;
+            }
+        }
+        // a commander that leaves its slots empty for too long gets one saucer anyway
+        for team in 0..2 {
+            let alive = self.ships.iter().any(|s| s.team == team && s.alive);
+            let lm = self.lm.as_mut().unwrap();
+            if alive {
+                lm.no_ships[team] = 0.0;
+                continue;
+            }
+            lm.no_ships[team] += dt;
+            if lm.no_ships[team] > 25.0 {
+                lm.no_ships[team] = 0.0;
+                if let Some(i) = self.ships.iter().position(|s| s.team == team && !s.alive) {
+                    self.deploy(i);
+                    self.event(team, "high command launched one saucer for you; DEPLOY to launch more".into());
+                }
+            }
+        }
     }
 }
 
@@ -334,7 +729,7 @@ impl Scene for Ufo {
         // cows in the fields
         self.cows = (0..((w / 40).clamp(2, 5))).map(|_| Cow { x: self.rng.range(0.1, 0.9) * self.w, y: self.ground + 2.0, lift: 0.0, gone: 0.0, dir: 1.0 }).collect();
         if self.ships.is_empty() {
-            let per = (w / 45).clamp(2, 5);
+            let per = if self.lm.is_some() { LM_FLEET } else { (w / 45).clamp(2, 5) };
             let mut id = 0;
             for team in 0..2 {
                 for _ in 0..per {
@@ -354,27 +749,35 @@ impl Scene for Ufo {
     fn update(&mut self, dt: f32) {
         self.t += dt;
         let s = self.s;
+        self.lm_poll();
+        let lm_mode = self.lm_mode();
         for i in 0..self.ships.len() {
             if self.ships[i].alive {
                 if self.ships[i].warp < 1.0 {
                     self.ships[i].warp = (self.ships[i].warp + dt * 0.9).min(1.0);
                 }
-                self.steer(i, dt);
+                if !self.commanded(self.ships[i].team) {
+                    self.ships[i].order = self.builtin_order(i);
+                }
+                self.execute(i, dt);
                 let sh = &mut self.ships[i];
                 sh.flash = (sh.flash - dt * 4.0).max(0.0);
+                if sh.hp < 35.0 {
+                    sh.low_for += dt;
+                }
+                if !matches!(sh.order, Order::Abduct(_)) {
+                    sh.bored -= dt;
+                }
                 if sh.hp < 45.0 && self.rng.chance(dt * 12.0) {
                     let (x, y) = (sh.x, sh.y);
                     let life = self.rng.range(0.8, 1.6);
                     self.parts.push(Part { x, y, vx: self.rng.range(-2.0, 2.0), vy: -self.rng.range(2.0, 5.0), life, max: life, kind: PK::Smoke, col: Rgb::hex(0x4a4658) });
                 }
-            } else {
+            } else if !lm_mode {
+                // built-in pilots: automatic reinforcements. In lm mode the commander must DEPLOY.
                 self.ships[i].respawn -= dt;
                 if self.ships[i].respawn <= 0.0 {
-                    let (team, id) = (self.ships[i].team, self.ships[i].id);
-                    let mut ns = self.spawn_ship(team, id);
-                    ns.y = self.rng.range(0.12, 0.35) * self.ground;
-                    ns.warp = 0.0;
-                    self.ships[i] = ns;
+                    self.deploy(i);
                 }
             }
         }
@@ -385,7 +788,7 @@ impl Scene for Ufo {
             b.x += b.vx * dt;
             b.y += b.vy * dt;
             b.life -= dt;
-            let (bx, by, team) = (b.x, b.y, b.team);
+            let (bx, by, team, from) = (b.x, b.y, b.team, b.from);
             let mut dead = b.life <= 0.0 || bx < -5.0 || bx > self.w + 5.0 || by < -5.0;
             if by >= self.ground {
                 dead = true;
@@ -405,16 +808,25 @@ impl Scene for Ufo {
                         let o = &mut self.ships[j];
                         o.hp -= dmg;
                         o.flash = 1.0;
-                        let (ox, oy, ot) = (o.x, o.y, o.team);
+                        o.last_hit_by = Some(from);
+                        let (ox, oy, ot, oid) = (o.x, o.y, o.team, o.id);
                         let killed = o.hp <= 0.0;
                         self.sparks(bx, by, TEAM_COL[team].lerp(Rgb::WHITE, 0.5), 7);
                         if killed {
+                            self.post_mortem(j, from);
                             let o = &mut self.ships[j];
                             o.alive = false;
                             o.abduct = None;
+                            o.target = None;
                             o.respawn = self.rng.range(2.5, 4.5);
                             self.score[team] += 1;
                             self.explode(ox, oy, TEAM_COL[ot]);
+                            let shooter = self.ships[from].id;
+                            self.event(team, format!("your S{shooter} destroyed enemy E{oid}"));
+                            self.event(ot, format!("your S{oid} was destroyed by E{shooter}; its slot is free (DEPLOY)"));
+                            if let Some(lm) = self.lm.as_mut() {
+                                lm.cry_due[ot] = true;
+                            }
                         }
                         break;
                     }
@@ -479,6 +891,7 @@ impl Scene for Ufo {
         if self.parts.len() > 4000 {
             self.parts.drain(0..1000);
         }
+        self.lm_send(dt);
     }
 
     fn render(&mut self, cv: &mut Canvas) {
@@ -632,9 +1045,49 @@ impl Scene for Ufo {
             cv.splat_add(b.x, b.y, Rgb::WHITE.scale(0.8));
         }
         // HUD
+        let cols = cv.cols as i32;
         let hud = format!("{} {}", TEAM_NAME[0], self.score[0]);
-        cv.text(2, 0, &hud, TEAM_COL[0].scale(0.55));
         let hud2 = format!("{} {}", TEAM_NAME[1], self.score[1]);
-        cv.text(4 + hud.len() as i32, 0, &hud2, TEAM_COL[1].scale(0.55));
+        match &self.lm {
+            None => {
+                cv.text(2, 0, &hud, TEAM_COL[0].scale(0.55));
+                cv.text(4 + hud.len() as i32, 0, &hud2, TEAM_COL[1].scale(0.55));
+            }
+            Some(lm) => {
+                // "ZORB 3  Qwen3-0.6B ..." left, "SmolLM2-1.7B  KRELL 2" right; "..." = thinking
+                let grey = Rgb::hex(0x8a90a8).scale(0.6);
+                let dim = Rgb::hex(0x8a90a8).scale(0.4);
+                let l0 = lm.ready[0].clone().unwrap_or_else(|| "built-in".into());
+                let l1 = lm.ready[1].clone().unwrap_or_else(|| "built-in".into());
+                let (t0, t1) = (if lm.pending[0] { " .." } else { "" }, if lm.pending[1] { ".. " } else { "" });
+                cv.text(2, 0, &hud, TEAM_COL[0].scale(0.55));
+                cv.text(4 + hud.len() as i32, 0, &format!("{l0}{t0}"), grey);
+                let right = format!("{t1}{l1}  ");
+                let x1 = cols - 2 - (right.len() + hud2.len()) as i32;
+                cv.text(x1, 0, &right, grey);
+                cv.text(x1 + right.len() as i32, 0, &hud2, TEAM_COL[1].scale(0.55));
+                let maxw = (cols - 4).max(8) as usize;
+                let clip = |s: &str| s.chars().take(maxw).collect::<String>();
+                let mut row = 1;
+                if !lm.status.is_empty() {
+                    cv.text(2, row, &clip(&lm.status), dim);
+                    row += 1;
+                }
+                // a battle cry (shouted when one of the team's saucers dies) shows for 20 s
+                for team in 0..2 {
+                    if !lm.say[team].is_empty() && lm.say_age[team] < 20.0 {
+                        cv.text(2, row, &clip(&format!("{}> {}", TEAM_NAME[team], lm.say[team])), TEAM_COL[team].scale(0.42));
+                        row += 1;
+                    }
+                }
+                // a fresh lesson shows for 12 s
+                for team in 0..2 {
+                    if !lm.lesson[team].is_empty() && lm.lesson_age[team] < 12.0 {
+                        cv.text(2, row, &clip(&format!("{} learned: {}", TEAM_NAME[team], lm.lesson[team])), TEAM_COL[team].lerp(grey, 0.5).scale(0.7));
+                        row += 1;
+                    }
+                }
+            }
+        }
     }
 }

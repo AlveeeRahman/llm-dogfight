@@ -10,6 +10,12 @@ use std::time::{Duration, Instant};
 
 pub struct RunOpts {
     pub scene: Option<String>,
+    /// `--pilots builtin|lm` overrides `ufo_pilots` from the config
+    pub pilots: Option<String>,
+    /// `cuda` | `mlx` overrides `lm_backend`
+    pub backend: Option<String>,
+    /// `--evolve on|off` overrides `lm_evolve`
+    pub evolve: Option<bool>,
     pub fps: Option<u32>,
     pub seed: Option<u64>,
     pub idle_trigger: Option<i32>,
@@ -21,6 +27,17 @@ fn clock_seed() -> u64 {
 }
 
 pub fn run(cfg: &Config, opts: RunOpts) -> i32 {
+    let mut cfg = cfg.clone();
+    if let Some(p) = &opts.pilots {
+        cfg.ufo_pilots = p.clone();
+    }
+    if let Some(e) = opts.evolve {
+        cfg.lm_evolve = e;
+    }
+    if let Some(b) = &opts.backend {
+        cfg.lm_backend = b.clone();
+    }
+    let cfg = &cfg;
     if let Some(pid) = opts.idle_trigger {
         if !idle::claim_trigger(pid) {
             return 0; // stale or foreign SIGALRM: do nothing, silently

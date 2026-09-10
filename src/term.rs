@@ -37,7 +37,7 @@ extern "C" fn on_signal(sig: libc::c_int) {
 fn install_handlers() {
     unsafe {
         let mut sa: libc::sigaction = std::mem::zeroed();
-        sa.sa_sigaction = on_signal as usize;
+        sa.sa_sigaction = on_signal as extern "C" fn(libc::c_int) as usize;
         libc::sigemptyset(&mut sa.sa_mask);
         sa.sa_flags = 0; // no SA_RESTART: we want poll() to wake up
         for s in [libc::SIGWINCH, libc::SIGCONT, libc::SIGTERM, libc::SIGINT, libc::SIGHUP, libc::SIGQUIT] {

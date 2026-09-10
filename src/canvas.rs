@@ -48,19 +48,6 @@ impl Canvas {
         self.dots.iter_mut().for_each(|d| *d = 0);
     }
 
-    pub fn fill(&mut self, c: Rgb) {
-        self.px.iter_mut().for_each(|p| *p = c);
-    }
-
-    pub fn vgradient(&mut self, top: Rgb, bot: Rgb) {
-        let h = self.h.max(2) as f32 - 1.0;
-        for y in 0..self.h {
-            let c = top.lerp(bot, y as f32 / h);
-            let row = &mut self.px[y * self.w..(y + 1) * self.w];
-            row.iter_mut().for_each(|p| *p = c);
-        }
-    }
-
     #[inline]
     pub fn inside(&self, x: i32, y: i32) -> bool {
         x >= 0 && y >= 0 && (x as usize) < self.w && (y as usize) < self.h
@@ -160,28 +147,8 @@ impl Canvas {
     }
 
     /// Anti-aliased line (sub-pixel stepping + splat).
-    pub fn line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, c: Rgb, a: f32) {
-        let len = ((x1 - x0).powi(2) + (y1 - y0).powi(2)).sqrt();
-        let n = (len * 1.6).ceil().max(1.0) as i32;
-        for i in 0..=n {
-            let t = i as f32 / n as f32;
-            self.splat(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, c, a);
-        }
-    }
 
     /// Solid stroke of `width` pixels (parallel AA lines, no gaps).
-    pub fn thick_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, width: f32, c: Rgb, shade: Rgb) {
-        let (dx, dy) = (x1 - x0, y1 - y0);
-        let len = (dx * dx + dy * dy).sqrt().max(0.001);
-        let (nx, ny) = (-dy / len, dx / len);
-        let n = (width * 2.0).ceil().max(1.0) as i32;
-        for k in 0..=n {
-            let f = k as f32 / n as f32 - 0.5;
-            let o = f * (width - 1.0).max(0.0);
-            let col = c.lerp(shade, (f + 0.5).clamp(0.0, 1.0));
-            self.line(x0 + nx * o, y0 + ny * o, x1 + nx * o, y1 + ny * o, col, 1.0);
-        }
-    }
 
     pub fn line_add(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, c: Rgb) {
         let len = ((x1 - x0).powi(2) + (y1 - y0).powi(2)).sqrt();

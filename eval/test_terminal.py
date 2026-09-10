@@ -48,7 +48,7 @@ class Shell:
 def make_env(tmp, shell, idle):
     cfg = os.path.join(tmp, "cfg", "reverie"); os.makedirs(cfg, exist_ok=True)
     open(os.path.join(cfg, "config.toml"), "w").write(
-        f'idle_seconds = {idle}\nscenes = ["meadow", "ufo", "galaxy", "garden"]\nrotate_minutes = 0.1\ngarden_speed = 40\nfps = 30\n')
+        f'idle_seconds = {idle}\nscenes = ["ufo"]\nrotate_minutes = 0.1\nfps = 30\n')
     env = dict(os.environ, TERM="xterm-256color", COLORTERM="truecolor", HOME=tmp,
                XDG_CONFIG_HOME=os.path.join(tmp, "cfg"), XDG_STATE_HOME=os.path.join(tmp, "state"),
                XDG_DATA_HOME=os.path.join(tmp, "data"), XDG_RUNTIME_DIR=os.path.join(tmp, "run"))
@@ -93,7 +93,7 @@ def test_run_and_restore(tmp):
     # SIGTERM path: reverie in the FOREGROUND, SIGTERM from outside (as a logout/kill would).
     # (A backgrounded `reverie &` is stopped by SIGTTOU when it touches the tty — that tested
     #  job control, not reverie. Fixed 2026-09-10, see BUILD_LOG.)
-    sh.send(b"reverie run --scene galaxy; echo TERM_DONE; stty -g > after2.txt\r")
+    sh.send(b"reverie run --scene ufo; echo TERM_DONE; stty -g > after2.txt\r")
     sh.pump(2.0, ENTER_ALT); sh.pump(1.0)
     for p in os.listdir("/proc"):
         if p.isdigit():

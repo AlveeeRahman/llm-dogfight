@@ -1,0 +1,500 @@
+#!/usr/bin/env python3
+"""reverie arena: two small language models command the two saucer teams.
+
+Spawned by `reverie` when `ufo_pilots = "lm"` (or `reverie arena`). Backends:
+  cuda  torch + transformers, weights in fp16/bf16 (or 8bit/4bit via bitsandbytes)
+  mlx   mlx-lm on Apple silicon (unified memory; no VRAM cap needed)
+  auto  mlx if importable on macOS/arm64, else cuda
+
+Line protocol on stdin/stdout (stdout is reserved for it; everything else goes to stderr,
+which reverie redirects to ~/.local/state/reverie/arena.log):
+
+  reverie -> arena   {"t":"obs","team":0,"tick":7,...}   the situation for one team, one JSON line
+                     {"t":"loss","team":1,"ship":5,...}   a saucer was destroyed (evolve mode: write a lesson)
+                     {"t":"quit"}
+  arena -> reverie   STATUS <text>                        progress (loading, ...)
+                     READY <team> <label> <mem_gb>        that team's commander is online
+                     ORDERS <team> <tick> S0:attack:3 S1:flee ... D:<n> | <one-line comms>
+                     LESSON <team> <text>                 what the commander learned from a loss
+                     ERROR <text>                         fatal; the arena exits
+
+Evolve mode (--evolve): after each loss the losing commander gets the post-mortem and writes one
+lesson; its lessons are kept in --memory/<TEAM>-<model>.txt and prepended to every later prompt,
+so the commanders change their play while the match runs (and across matches).
+
+  arena.py --model-a ID --model-b ID [--backend auto|cuda|mlx] [--vram-gb 6] [--quant none|8bit|4bit]
+           [--evolve|--no-evolve] [--memory DIR]
+  arena.py ... --check [--load]     environment report (`reverie arena check`)
+  arena.py ... --pull               download both models (`reverie arena pull`)
+"""
+import argparse
+import json
+import os
+import platform
+import re
+import sys
+import time
+
+TEAM_NAMES = ["ZORB", "KRELL"]
+# the optional argument must stay on the same line, or "flee\nS2: ..." would eat "S2"
+ORDER_RE = re.compile(r"S\s*(\d+)\s*[:\-=]\s*(attack|hunt|flee|abduct|guard|patrol)\b(?:[ \t]*[ESC]?[ \t]*(\d+))?", re.I)
+SAY_RE = re.compile(r"SAY\s*[:\-=]\s*(.+)", re.I)
+DEPLOY_RE = re.compile(r"DEPLOY\s*[:\-=]\s*(\d+)", re.I)
+SAY_OK = re.compile(r"[^A-Za-z0-9 .,!?'\-:;()]")
+LESSON_RE = re.compile(r"LESSON\s*[:\-=]\s*(.+)", re.I)
+TEMPLATE_ECHO = re.compile(r"battle cry|defiant|own words|characters|<|>", re.I)
+STOPWORDS = {"always", "never", "prioritize", "prioritise", "the", "a", "an", "to", "of", "and", "or", "over", "when", "is",
+             "are", "in", "on", "with", "for", "your", "our", "them", "they", "it", "should", "must", "instead", "rather", "than"}
+MAX_LESSONS = 8
+
+
+def log(*a):
+    print(time.strftime("%H:%M:%S"), *a, file=sys.stderr, flush=True)
+
+
+def emit(line):
+    sys.stdout.write(line.replace("\n", " ") + "\n")
+    sys.stdout.flush()
+
+
+def label_of(model_id):
+    return model_id.rstrip("/").split("/")[-1][:24]
+
+
+# ------------------------------------------------------------------ backends
+
+class Commander:
+    def __init__(self, model_id, model, tok):
+        self.model_id, self.model, self.tok = model_id, model, tok
+        self.label = label_of(model_id)
+
+
+class TorchBackend:
+    name = "cuda"
+
+    def __init__(self, vram_gb, quant):
+        import torch
+        self.torch = torch
+        if not torch.cuda.is_available():
+            if sys.platform == "darwin":
+                raise RuntimeError("no CUDA on macOS: use `reverie run mlx ufo-battle` (pip install mlx-lm)")
+            raise RuntimeError("torch has no CUDA device (install a CUDA build of torch: https://pytorch.org/get-started/locally/)")
+        self.dev = torch.device("cuda")
+        total = torch.cuda.get_device_properties(0).total_memory
+        self.total_gb = total / 2**30
+        # Hard cap: the caching allocator refuses to grow past the budget instead of
+        # spilling into memory the desktop or another program needs.
+        frac = min(1.0, vram_gb * 2**30 / total)
+        torch.cuda.set_per_process_memory_fraction(frac, 0)
+        self.dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        self.quant = quant
+
+    def load(self, model_id):
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        tok = AutoTokenizer.from_pretrained(model_id)
+        kw = {}
+        if self.quant in ("8bit", "4bit"):
+            from transformers import BitsAndBytesConfig  # needs `pip install bitsandbytes`
+            kw["quantization_config"] = BitsAndBytesConfig(load_in_8bit=(self.quant == "8bit"), load_in_4bit=(self.quant == "4bit"),
+                                                           bnb_4bit_compute_dtype=self.dtype)
+            kw["device_map"] = {"": 0}
+        try:
+            model = AutoModelForCausalLM.from_pretrained(model_id, dtype=self.dtype, **kw)
+        except TypeError:  # transformers < 5 spelling
+            model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=self.dtype, **kw)
+        if "device_map" not in kw:
+            model.to(self.dev)
+        model.eval()
+        return Commander(model_id, model, tok)
+
+    def generate(self, c, messages, max_new):
+        torch = self.torch
+        text = c.tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+        ids = c.tok(text, return_tensors="pt").to(self.dev)
+        pad = c.tok.pad_token_id if c.tok.pad_token_id is not None else c.tok.eos_token_id
+        with torch.inference_mode():
+            out = c.model.generate(**ids, max_new_tokens=max_new, do_sample=True, temperature=0.7, top_p=0.9, top_k=40,
+                                   pad_token_id=pad)
+        n_in = ids["input_ids"].shape[1]
+        return c.tok.decode(out[0, n_in:], skip_special_tokens=True), int(out.shape[1] - n_in)
+
+    def mem_gb(self):
+        return self.torch.cuda.max_memory_reserved() / 2**30
+
+    def device_desc(self):
+        p = self.torch.cuda.get_device_properties(0)
+        return f"{p.name}, {self.total_gb:.1f} GB, dtype {str(self.dtype).split('.')[-1]}"
+
+
+class MlxBackend:
+    name = "mlx"
+
+    def __init__(self, vram_gb, quant):
+        import mlx.core as mx  # noqa: F401  (pip install mlx-lm)
+        from mlx_lm import generate, load
+        from mlx_lm.sample_utils import make_sampler
+        self._load, self._generate, self._sampler = load, generate, make_sampler(temp=0.7, top_p=0.9)
+        self.mx = mx
+        if quant != "none":
+            log("mlx: --quant is ignored; pick a pre-quantized repo such as mlx-community/Qwen3-0.6B-4bit")
+
+    def load(self, model_id):
+        model, tok = self._load(model_id)
+        return Commander(model_id, model, tok)
+
+    def generate(self, c, messages, max_new):
+        text = c.tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+        out = self._generate(c.model, c.tok, prompt=text, max_tokens=max_new, sampler=self._sampler, verbose=False)
+        return out, len(c.tok.encode(out))
+
+    def mem_gb(self):
+        mx = self.mx
+        get = getattr(mx, "get_peak_memory", None) or getattr(getattr(mx, "metal", None), "get_peak_memory", None)
+        return get() / 2**30 if get else 0.0
+
+    def device_desc(self):
+        return f"Apple silicon via MLX ({platform.machine()})"
+
+
+def pick_backend(name):
+    """auto: Apple silicon Macs always use MLX; everything else uses torch + CUDA."""
+    if name == "auto":
+        return "mlx" if (sys.platform == "darwin" and platform.machine() == "arm64") else "cuda"
+    return name
+
+
+def make_backend(name, vram_gb, quant):
+    try:
+        return (MlxBackend if name == "mlx" else TorchBackend)(vram_gb, quant)
+    except ImportError as e:
+        if name == "mlx":
+            hint = "pip install mlx-lm"
+        elif sys.platform == "darwin":
+            hint = "on a Mac use `reverie run mlx ufo-battle` after `pip install mlx-lm`"
+        else:
+            hint = "pip install torch transformers (a CUDA build of torch)"
+        raise RuntimeError(f"{e}; {hint}") from e
+
+
+# ------------------------------------------------------------------ prompting
+
+SYSTEM = ("You are the commander of team {me} in an arcade flying-saucer dogfight against team {foe}. "
+          "Each turn you give one order per ship. Win by destroying enemy saucers; stealing cows is a bonus. "
+          "Focus fire on damaged enemies, pull badly damaged ships out, only abduct cows when enemies are far. "
+          "Idle patrols lose: most ships should attack or hunt. Answer only in the required format.")
+
+
+class Lessons:
+    """What a commander learned from its losses: a short list kept in the prompt and on disk."""
+
+    def __init__(self, path):
+        self.path = path
+        self.items = []
+        if path and os.path.exists(path):
+            self.items = [l.strip() for l in open(path, encoding="utf-8") if l.strip()][-MAX_LESSONS:]
+
+    @staticmethod
+    def words(text):
+        return {w for w in re.findall(r"[a-z]+", text.lower()) if w not in STOPWORDS}
+
+    def add(self, text):
+        """Keep a lesson unless it is (nearly) the same as one already known."""
+        text = text.strip()
+        if not text:
+            return
+        w = self.words(text)
+        for old in self.items:
+            ow = self.words(old)
+            if w == ow or (w and ow and len(w & ow) / len(w | ow) >= 0.6):
+                return
+        self.items.append(text)
+        self.items = self.items[-MAX_LESSONS:]
+        if self.path:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            with open(self.path, "w", encoding="utf-8") as f:
+                f.write("\n".join(self.items) + "\n")
+
+    def prompt(self):
+        if not self.items:
+            return ""
+        return " Lessons from your past losses, obey them: " + " ".join(f"({i + 1}) {l}" for i, l in enumerate(self.items))
+
+
+def system_prompt(team, lessons):
+    return SYSTEM.format(me=TEAM_NAMES[team], foe=TEAM_NAMES[1 - team]) + (lessons.prompt() if lessons else "")
+
+
+def describe_loss(loss):
+    """The post-mortem the losing commander reflects on."""
+    t = loss["team"]
+    parts = [f"Your saucer S{loss['ship']} was destroyed by enemy E{loss['killer']} (which had {loss['killer_hp']} hp)",
+             f"at distance {loss['dist']} (laser range {loss['range']}), while its order was '{loss['order']}'.",
+             f"At that moment {loss['enemies_near']} enemies and {loss['allies_near']} allies were within range of it."]
+    if loss.get("low_for", 0) >= 3:
+        parts.append(f"It had been flying below 35 hp for {loss['low_for']:.0f} s without retreating.")
+    if loss.get("alive_for", 0) < 8:
+        parts.append(f"It had warped in only {loss['alive_for']:.0f} s earlier.")
+    if loss.get("y", 0) > loss.get("ground", 100) - 12:
+        parts.append("It was low, near the ground.")
+    return " ".join(parts)
+
+
+def reflect(backend, cmdr, lessons, loss):
+    team = loss["team"]
+    messages = [{"role": "system", "content": system_prompt(team, lessons)},
+                {"role": "user", "content": describe_loss(loss) + " What should you do differently so this does not happen again? "
+                 "There is no repair or healing: a damaged saucer stays damaged until it is destroyed; only flee, guard, "
+                 "attack, hunt, abduct, patrol and DEPLOY exist. Reply with one concrete rule for your future orders, "
+                 "max 25 words, in the form:\nLESSON: <rule>"}]
+    t0 = time.time()
+    text, n_tok = backend.generate(cmdr, messages, 60)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
+    m = LESSON_RE.search(text)
+    lesson = (m.group(1) if m else text.strip().splitlines()[0] if text.strip() else "").strip()
+    lesson = SAY_OK.sub("", lesson)[:120].strip()
+    log(f"team {team} {cmdr.label} reflects ({n_tok} tok, {time.time() - t0:.2f}s): {lesson!r}")
+    return lesson
+
+
+def describe(obs):
+    team = obs["team"]
+    me, foe = TEAM_NAMES[team], TEAM_NAMES[1 - team]
+    sc = obs["score"]
+    lines = [f"Score: {me} {sc[team]}, {foe} {sc[1 - team]}. Field: x 0-100 left to right, y 0-{obs['fh']} top to bottom, "
+             f"ground at y={obs['ground']}. Laser range {obs['range']}."]
+    lines.append("Your ships (S):")
+    for s in obs["mine"]:
+        near = f", nearest enemy E{s['near']} at distance {s['dist']}" if s.get("near", -1) >= 0 else ", no enemy in the air"
+        lines.append(f"- S{s['id']} at ({s['x']},{s['y']}) hp {s['hp']}{near}, current order: {s['order']}")
+    if not obs["mine"]:
+        lines.append("- (all respawning)")
+    lines.append("Enemy ships (E):")
+    for e in obs["foes"]:
+        tg = f", targeting S{e['target']}" if e.get("target", -1) >= 0 else ""
+        lines.append(f"- E{e['id']} at ({e['x']},{e['y']}) hp {e['hp']}{tg}")
+    if not obs["foes"]:
+        lines.append("- (none in the air)")
+    cows = ", ".join(f"C{c['id']} at x={c['x']} {c['state']}" for c in obs["cows"]) or "none"
+    lines.append(f"Cows (C) on the ground: {cows}")
+    if obs.get("events"):
+        lines.append("Recent events: " + "; ".join(obs["events"]))
+    if obs.get("foe_say"):
+        lines.append(f'Enemy commander said: "{obs["foe_say"]}"')
+    free = int(obs.get("free_slots", 0))
+    if free:
+        lines.append(f"Reinforcements: {free} of your saucers are destroyed. You may launch replacements now with a line "
+                     f"'DEPLOY: <n>' (n up to {free}); they warp in at the top of the screen.")
+    lines.append("Orders available: attack E<n> (chase and shoot), hunt (attack the nearest enemy), flee (retreat and dodge), "
+                 "abduct C<n> (beam up a cow), guard S<n> (fly with an ally), patrol (roam).")
+    if obs.get("cry"):
+        lines.append("One of your saucers was just destroyed. End your reply with a SAY line: a defiant battle cry "
+                     "to the enemy in your own words, max 40 characters.")
+    lines.append("Reply with exactly this format and nothing else:")
+    for s in obs["mine"]:
+        lines.append(f"S{s['id']}: <order>")
+    if free:
+        lines.append(f"DEPLOY: <0-{free}>")
+    if obs.get("cry"):
+        lines.append("SAY: <battle cry>")
+    return "\n".join(lines)
+
+
+def parse_reply(text, obs):
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
+    mine = {s["id"] for s in obs["mine"]}
+    orders = {}
+    for m in ORDER_RE.finditer(text):
+        sid, verb, arg = int(m.group(1)), m.group(2).lower(), m.group(3)
+        if sid not in mine:
+            continue
+        if verb in ("attack", "abduct", "guard"):
+            if arg is None:
+                verb = "hunt" if verb != "abduct" else "patrol"
+                orders[sid] = verb
+            else:
+                orders[sid] = f"{verb}:{int(arg)}"
+        else:
+            orders[sid] = verb
+    say = ""
+    m = SAY_RE.search(text) if obs.get("cry") else None
+    if m:
+        say = SAY_OK.sub("", m.group(1)).strip()[:40]
+        if TEMPLATE_ECHO.search(say):  # the model parroted the instructions
+            say = ""
+    deploy = 0
+    m = DEPLOY_RE.search(text)
+    if m:
+        deploy = min(int(m.group(1)), int(obs.get("free_slots", 0)))
+    return orders, say, deploy
+
+
+def decide(backend, cmdr, obs, lessons=None):
+    team = obs["team"]
+    messages = [{"role": "system", "content": system_prompt(team, lessons)},
+                {"role": "user", "content": describe(obs)}]
+    max_new = min(110, 30 + 14 * max(1, len(obs["mine"])))
+    t0 = time.time()
+    text, n_tok = backend.generate(cmdr, messages, max_new)
+    dt = time.time() - t0
+    orders, say, deploy = parse_reply(text, obs)
+    log(f"team {team} {cmdr.label}: {n_tok} tok in {dt:.2f}s ({n_tok / max(dt, 1e-3):.0f} tok/s) orders={orders} deploy={deploy} say={say!r}")
+    log("   raw:", text.replace("\n", " / ")[:300])
+    return orders, say, deploy
+
+
+# ------------------------------------------------------------------ commands
+
+def is_cached(model_id):
+    try:
+        from huggingface_hub import try_to_load_from_cache
+        r = try_to_load_from_cache(model_id, "config.json")
+        return isinstance(r, str)
+    except Exception:
+        return False
+
+
+def check(args):
+    name = pick_backend(args.backend)
+    print(f"platform    {platform.system()} {platform.machine()}, python {platform.python_version()}")
+    print(f"backend     {name} (requested {args.backend})")
+    for mid in (args.model_a, args.model_b):
+        print(f"model       {mid}  cached={'yes' if is_cached(mid) else 'no (run: reverie arena pull)'}")
+    try:
+        if name == "mlx":
+            import mlx_lm
+            print(f"mlx-lm      {getattr(mlx_lm, '__version__', '?')}")
+        else:
+            import torch
+            import transformers
+            print(f"torch       {torch.__version__}  cuda={torch.cuda.is_available()}  transformers {transformers.__version__}")
+            if torch.cuda.is_available():
+                p = torch.cuda.get_device_properties(0)
+                free, total = torch.cuda.mem_get_info()
+                print(f"gpu         {p.name}, {total / 2**30:.1f} GB total, {free / 2**30:.1f} GB free now; budget --vram-gb {args.vram_gb}")
+    except ImportError as e:
+        print(f"MISSING     {e}")
+        print("            cuda: pip install torch transformers      mac: pip install mlx-lm, then `reverie run mlx ufo-battle`")
+        return 1
+    if not args.load:
+        print("(add --load to load both models and time one decision each)")
+        return 0
+    be = make_backend(name, args.vram_gb, args.quant)
+    cmdrs = []
+    for team, mid in enumerate((args.model_a, args.model_b)):
+        t0 = time.time()
+        cmdrs.append(be.load(mid))
+        print(f"loaded      {mid} in {time.time() - t0:.1f}s, peak memory {be.mem_gb():.2f} GB")
+    obs = {"team": 0, "tick": 1, "score": [0, 0], "fh": 55, "ground": 47, "range": 60, "free_slots": 1, "cry": True,
+           "mine": [{"id": 0, "x": 20, "y": 20, "hp": 100, "near": 3, "dist": 30, "order": "patrol"},
+                    {"id": 1, "x": 10, "y": 30, "hp": 40, "near": 3, "dist": 35, "order": "patrol"}],
+           "foes": [{"id": 3, "x": 50, "y": 22, "hp": 60, "target": 1}, {"id": 4, "x": 80, "y": 15, "hp": 100, "target": -1}],
+           "cows": [{"id": 0, "x": 15, "state": "free"}, {"id": 1, "x": 70, "state": "free"}], "events": [], "foe_say": ""}
+    for team, c in enumerate(cmdrs):
+        obs["team"] = team
+        t0 = time.time()
+        orders, say, deploy = decide(be, c, obs)
+        print(f"decision    team {team} {c.label}: {time.time() - t0:.2f}s  orders={orders}  deploy={deploy}  say={say!r}")
+    loss = {"team": 1, "ship": 3, "killer": 0, "killer_hp": 80, "dist": 20, "range": 60, "order": "abduct C1",
+            "enemies_near": 2, "allies_near": 0, "low_for": 6, "alive_for": 40, "x": 70, "y": 40, "ground": 47}
+    t0 = time.time()
+    print(f"reflection  team 1 {cmdrs[1].label}: {reflect(be, cmdrs[1], Lessons(None), loss)!r} ({time.time() - t0:.2f}s)")
+    print(f"peak memory {be.mem_gb():.2f} GB for both models ({be.device_desc()})")
+    return 0
+
+
+def pull(args):
+    from huggingface_hub import snapshot_download
+    pats = ["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model", "*.tiktoken"]
+    for mid in (args.model_a, args.model_b):
+        t0 = time.time()
+        p = snapshot_download(mid, allow_patterns=pats)
+        print(f"{mid} -> {p} ({time.time() - t0:.0f}s)")
+    return 0
+
+
+def serve(args):
+    name = pick_backend(args.backend)
+    emit(f"STATUS starting {name} backend")
+    try:
+        be = make_backend(name, args.vram_gb, args.quant)
+    except Exception as e:
+        emit(f"ERROR {name}: {e}")
+        return 1
+    cmdrs = []
+    for team, mid in enumerate((args.model_a, args.model_b)):
+        emit(f"STATUS loading {label_of(mid)} for {TEAM_NAMES[team]}")
+        try:
+            t0 = time.time()
+            c = be.load(mid)
+            log(f"loaded {mid} in {time.time() - t0:.1f}s, peak {be.mem_gb():.2f} GB")
+        except Exception as e:
+            emit(f"ERROR loading {mid}: {str(e).splitlines()[0][:160]}")
+            return 1
+        cmdrs.append(c)
+        emit(f"READY {team} {c.label} {be.mem_gb():.2f}")
+    lessons = []
+    for team, c in enumerate(cmdrs):
+        path = os.path.join(args.memory, f"{TEAM_NAMES[team]}-{c.label}.txt") if (args.evolve and args.memory) else None
+        lessons.append(Lessons(path))
+        if lessons[-1].items:
+            log(f"team {team} remembers {len(lessons[-1].items)} lesson(s) from {path}")
+    log("serving on", be.device_desc(), "evolve" if args.evolve else "no evolve")
+    for raw in sys.stdin:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            obs = json.loads(raw)
+        except json.JSONDecodeError:
+            log("bad line:", raw[:120])
+            continue
+        if obs.get("t") == "quit":
+            break
+        if obs.get("t") == "loss" and args.evolve:
+            team = int(obs["team"])
+            try:
+                lesson = reflect(be, cmdrs[team], lessons[team], obs)
+            except Exception as e:
+                log("reflect failed:", repr(e))
+                lesson = ""
+            if lesson:
+                lessons[team].add(lesson)
+                emit(f"LESSON {team} {lesson}")
+            continue
+        if obs.get("t") != "obs":
+            continue
+        team = int(obs["team"])
+        try:
+            orders, say, deploy = decide(be, cmdrs[team], obs, lessons[team])
+        except Exception as e:
+            log("decide failed:", repr(e))
+            orders, say, deploy = {}, "", 0
+        body = " ".join(f"S{sid}:{o}" for sid, o in sorted(orders.items()))
+        emit(f"ORDERS {team} {obs.get('tick', 0)} {body} D:{deploy} | {say}")
+    log("bye")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--model-a", default="Qwen/Qwen3-0.6B")
+    ap.add_argument("--model-b", default="HuggingFaceTB/SmolLM2-1.7B-Instruct")
+    ap.add_argument("--backend", default="cuda", choices=["auto", "cuda", "mlx"])
+    ap.add_argument("--vram-gb", type=float, default=6.0, help="CUDA memory cap for this process (both models)")
+    ap.add_argument("--quant", default="none", choices=["none", "8bit", "4bit"], help="bitsandbytes quantization (cuda)")
+    ap.add_argument("--evolve", dest="evolve", action="store_true", default=True, help="learn a lesson from every loss (default)")
+    ap.add_argument("--no-evolve", dest="evolve", action="store_false")
+    ap.add_argument("--memory", default="", help="directory where lessons persist (evolve mode)")
+    ap.add_argument("--check", action="store_true")
+    ap.add_argument("--load", action="store_true", help="with --check: load the models and time a decision")
+    ap.add_argument("--pull", action="store_true")
+    args = ap.parse_args()
+    if args.check:
+        return check(args)
+    if args.pull:
+        return pull(args)
+    return serve(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

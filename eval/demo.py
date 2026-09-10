@@ -25,8 +25,7 @@ def record(path):
     os.chdir(tmp)
     env = T.make_env(tmp, "bash", 6)
     cfg = os.path.join(tmp, "cfg", "reverie", "config.toml")
-    open(cfg, "w").write('idle_seconds = 6\nscenes = ["meadow", "ufo", "galaxy", "garden"]\nrotate_minutes = 0.16\n'
-                         'garden_speed = 60\nday_cycle_seconds = 45\nfps = 30\n')
+    open(cfg, "w").write('idle_seconds = 6\nscenes = ["ufo"]\nrotate_minutes = 0.16\nfps = 30\n')
     sh = T.Shell("bash", env)
     t0 = time.time(); log = []; events = []
     def pump(secs, until=None):

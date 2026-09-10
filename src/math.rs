@@ -32,23 +32,12 @@ impl Rgb {
         Rgb::new(self.r * k, self.g * k, self.b * k)
     }
     #[inline]
-    pub fn mul(self, o: Rgb) -> Rgb {
-        Rgb::new(self.r * o.r, self.g * o.g, self.b * o.b)
-    }
-    #[inline]
     pub fn luma(self) -> f32 {
         0.2126 * self.r + 0.7152 * self.g + 0.0722 * self.b
-    }
-    pub fn saturate(self, k: f32) -> Rgb {
-        let l = self.luma();
-        Rgb::new(l + (self.r - l) * k, l + (self.g - l) * k, l + (self.b - l) * k)
     }
     #[inline]
     pub fn to_u8(self) -> [u8; 3] {
         [q(self.r), q(self.g), q(self.b)]
-    }
-    pub fn from_u8(c: [u8; 3]) -> Rgb {
-        Rgb::new(c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0)
     }
 }
 #[inline]
@@ -82,11 +71,6 @@ pub fn clamp01(x: f32) -> f32 {
     x.clamp(0.0, 1.0)
 }
 #[inline]
-pub fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
-    let t = clamp01((x - e0) / (e1 - e0));
-    t * t * (3.0 - 2.0 * t)
-}
-#[inline]
 pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
@@ -112,17 +96,6 @@ pub fn vnoise(x: f32, y: f32, seed: u32) -> f32 {
     let c = hash2(xi, yi + 1, seed);
     let d = hash2(xi + 1, yi + 1, seed);
     lerp(lerp(a, b, u), lerp(c, d, u), v)
-}
-
-pub fn fbm(x: f32, y: f32, seed: u32, octaves: u32) -> f32 {
-    let (mut s, mut amp, mut f, mut norm) = (0.0, 0.5, 1.0, 0.0);
-    for o in 0..octaves {
-        s += amp * vnoise(x * f, y * f, seed.wrapping_add(o * 101));
-        norm += amp;
-        amp *= 0.5;
-        f *= 2.03;
-    }
-    s / norm
 }
 
 /// Piecewise-linear gradient over sorted keys in 0..1.

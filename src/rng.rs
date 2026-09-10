@@ -36,7 +36,4 @@ impl Rng {
         let u2 = self.f32();
         (-2.0 * u1.ln()).sqrt() * (std::f32::consts::TAU * u2).cos()
     }
-    pub fn pick<'a, T>(&mut self, xs: &'a [T]) -> &'a T {
-        &xs[self.below(xs.len())]
-    }
 }

@@ -59,3 +59,59 @@ deterministic for perf, but visual quality is judge-only — the domain where su
 fail. Use the two bounded loops in docs/LOOPS.md with a human reviewing snapshots.
 
 Next: see docs/BRIEF.md.
+
+## 2026-09-10 — session 2: ufo only, language-model commanders, macOS/MLX, evolve
+
+User direction (in order received): keep only `ufo`; make the saucers "intelligent machine
+controlled" with a CUDA option where two small LMs play each other, graphics unchanged, ≤ 8 GB
+VRAM for both; must run on the *minimum* 8 GB CUDA device (this 20 GB card is not the yardstick);
+add an MLX option for Macs; 4 UFOs per team with DEPLOY-on-decision; models learn from each
+destroyed UFO (evolve, as a toggle); default cuda, `reverie run mlx|cuda ufo-battle`, `reverie run
+ufo` = baseline; battle cry only when one of the model's UFOs dies.
+
+Removed: galaxy, garden, meadow, portrait, importer (`src/import.rs`, `src/sprite.rs`), the
+`image` crate, their snapshots. Binary 1.13 MB -> 0.69 MB. Config keeps accepting the old keys.
+LOCKED-FILE NOTE: `eval/test_terminal.py` and `eval/demo.py` named the removed scenes
+(`--scene galaxy`, `scenes = [...]`); changed to `ufo`, pass criteria unchanged.
+
+Built:
+- `src/arena.rs` + `agents/arena.py` (embedded, written to ~/.local/share/reverie/arena.py):
+  line protocol over pipes, reader thread, `Order` enum; backends torch/CUDA (bf16|fp16, hard
+  VRAM cap via set_per_process_memory_fraction, optional bnb 8/4-bit) and mlx-lm.
+- `ufo.rs` refactor: order → steering (`execute`), heuristic `builtin_order` reproduces v0.1,
+  LM plumbing (observations in percent units, pending/tick bookkeeping, 60 s stuck guard, 25 s
+  no-ships guard), 4-slot fleets with DEPLOY, post-mortems, HUD (models, cries 20 s, lessons 12 s).
+- Evolve: loss → reflection → `LESSON`; ≤ 8 per (team, model), word-set dedup (Jaccard ≥ 0.6),
+  persisted in ~/.local/state/reverie/lessons; `reverie arena lessons|forget`.
+- macOS: watcher uses `ps -o pgid,tpgid,stat` and `--tty "$(tty)"` from the snippets; errno via
+  std; `stop_watchers` via pidfiles. `cargo check --target aarch64-apple-darwin` clean. NOT run
+  on a Mac.
+- CLI: `run [cuda|mlx] [ufo|ufo-battle]`, `arena [cuda|mlx]`, `arena check [--load] | pull |
+  lessons | forget`, `--evolve on|off`. Config: ufo_pilots, lm_backend (default cuda),
+  lm_model_a/b, lm_vram_gb (6), lm_quant, lm_python, lm_think_seconds, lm_evolve.
+- `eval/test_arena.py` (GPU-free sidecar checks) + CI macos job.
+
+Model selection (HF API, ungated, bf16 GB): Qwen3-0.6B 1.5, Qwen3-1.7B 4.1, Qwen3.5-0.8B 1.75,
+Qwen3.5-2B 4.6, SmolLM2-1.7B-Instruct 3.4, SmolLM3-3B 6.2; gemma-3-1b/Llama-3.2-1B gated;
+gemma-4-E2B 10 GB. Qwen3-1.7B+SmolLM2 (7.5 GB) REJECTED for the 8 GB target. KEPT: Qwen3-0.6B
+(ZORB) vs SmolLM2-1.7B-Instruct (KRELL).
+
+Evidence (RTX 4000 Ada, torch 2.6 cu124, transformers 5.7):
+- `reverie arena check --load`: load 2.0 s + 0.7 s; torch peak 4.61 GB both models; decisions
+  0.33 s / 0.44 s; reflection 0.20 s.
+- pty matches at 200x55 (fps 60): 76 s → 4317 frames, sidecar 4940 MiB by nvidia-smi;
+  60 s → 3458 frames, 114 decisions, 23 reflections, 15 deploys, 4942 MiB.
+- bench ufo 200x55: 0.15 ms mean, 0.17 p95, 22.6 KB mean, 29.2 KB p95 → PASS (v0.1: 0.37 ms).
+- harness: 14/14 bash checks PASS (`--shells bash`); zsh/fish are not installed on this machine
+  and sudo needs a password, so their 4 checks could not run here (18/18 expected in CI).
+- `eval/test_arena.py` 18/18 PASS. Build: 0 warnings (was 5; dead helpers removed, signal cast
+  lint fixed). Snapshots 80x24/120x36/200x55 reviewed: builtin scene unchanged.
+
+Prompt fixes found by reading arena.log (kept): "(required)" hint copied into cries → hint moved
+into prose; models echoed the SAY placeholder → `SAY: <battle cry>` + TEMPLATE_ECHO filter;
+`ORDER_RE` ate the next line's ship id when an order had no argument → argument must stay on
+the line; lessons about "healing ships" → reflection prompt states there is no repair;
+post-mortems were sent for builtin-piloted deaths → only for commanded teams.
+
+Installed with `cargo install --path .` (~/.cargo/bin/reverie == target/release). Not committed.
+Next: Mac verification pass; real GNOME Terminal pass; see HANDOFF.md §9.

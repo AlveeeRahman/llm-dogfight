@@ -15,7 +15,7 @@ if [[ $- == *i* ]] && [ -t 0 ] && [ -z "${REVERIE_DISABLE-}" ] && command -v rev
   # SIGWINCH afterwards makes readline repaint the half-typed line (verified in a pty)
   __reverie_alrm() { command reverie run --idle-trigger "$$"; kill -WINCH $$ 2>/dev/null; }
   trap '__reverie_alrm' ALRM
-  command reverie watch --pid "$$" --daemon
+  command reverie watch --pid "$$" --tty "$(tty 2>/dev/null)" --daemon
 fi
 "#
         }
@@ -32,7 +32,7 @@ if [[ -o interactive ]] && [[ -t 0 ]] && [[ -z ${REVERIE_DISABLE-} ]] && (( $+co
     fi
     return 0
   }
-  command reverie watch --pid $$ --daemon
+  command reverie watch --pid $$ --tty "$(tty 2>/dev/null)" --daemon
 fi
 "#
         }
@@ -43,7 +43,7 @@ if status is-interactive; and isatty stdin; and not set -q REVERIE_DISABLE; and 
         command reverie run --idle-trigger $fish_pid
         commandline -f repaint
     end
-    command reverie watch --pid $fish_pid --daemon
+    command reverie watch --pid $fish_pid --tty (tty 2>/dev/null) --daemon
 end
 "#
         }

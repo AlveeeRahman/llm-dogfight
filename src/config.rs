@@ -12,9 +12,17 @@ pub struct Config {
     pub max_instances: u32,
     pub color: String,
     pub tolerance: i32,
-    pub garden_speed: f32,
-    pub day_cycle_seconds: f32,
-    pub character: String,
+    /// "builtin" (heuristic pilots, no GPU) or "lm" (two language models via agents/arena.py)
+    pub ufo_pilots: String,
+    pub lm_backend: String,
+    pub lm_model_a: String,
+    pub lm_model_b: String,
+    pub lm_vram_gb: f32,
+    pub lm_quant: String,
+    pub lm_python: String,
+    pub lm_think_seconds: f32,
+    /// commanders write a lesson after each loss and keep it in their prompts (and on disk)
+    pub lm_evolve: bool,
 }
 
 pub const DEFAULT_TOML: &str = r#"# reverie — ~/.config/reverie/config.toml
@@ -26,8 +34,8 @@ idle_seconds = 300
 fps = 30
 unfocused_fps = 12
 
-# Scenes to rotate through: ufo, galaxy, garden, meadow, or portrait:<sprite-name>
-scenes = ["ufo", "galaxy", "garden", "meadow"]
+# Scenes to rotate through: "ufo" (built-in pilots) and/or "ufo-battle" (language models).
+scenes = ["ufo"]
 rotate_minutes = 4
 
 # At most this many terminals animate at once (others stay quiet).
@@ -40,14 +48,22 @@ color = "auto"
 # for the terminal to draw = lower CPU. 3-8 is invisible in practice.
 tolerance = 5
 
-# Garden: growth speed multiplier (1.0 = a plant matures in ~6 min of idle time).
-garden_speed = 1.0
+# Who flies the "ufo" scene: "builtin" (heuristic pilots, no GPU) or "lm" (same as the
+# "ufo-battle" scene: two small language models command the two teams; needs python3 with
+# torch+transformers on a CUDA GPU, or mlx-lm on Apple silicon). Try `reverie run cuda ufo-battle`;
+# check the setup with `reverie arena check --load`.
+ufo_pilots = "builtin"
 
-# Meadow: seconds for a full day -> sunset -> night -> dawn cycle.
-day_cycle_seconds = 300
-
-# Meadow character: "builtin" or the name of a sprite made with `reverie import`.
-character = "builtin"
+# Language-model commanders. Defaults fit an 8 GB CUDA card (about 5 GB together).
+lm_backend = "cuda"                                 # cuda | mlx (Apple silicon) | auto; or `reverie run mlx ufo-battle`
+lm_model_a = "Qwen/Qwen3-0.6B"                      # team ZORB
+lm_model_b = "HuggingFaceTB/SmolLM2-1.7B-Instruct"  # team KRELL
+lm_vram_gb = 6                                      # CUDA memory cap for both models
+lm_quant = "none"                                   # cuda: none | 8bit | 4bit (bitsandbytes) for bigger models
+lm_python = "python3"                               # interpreter that has the ML packages
+lm_think_seconds = 1.0                              # minimum pause between a team's orders
+lm_evolve = true                                    # learn from every destroyed saucer (lessons persist in
+                                                    # ~/.local/state/reverie/lessons; `reverie arena forget` clears)
 "#;
 
 impl Default for Config {
@@ -56,14 +72,20 @@ impl Default for Config {
             idle_seconds: 300,
             fps: 30,
             unfocused_fps: 12,
-            scenes: vec!["ufo".into(), "galaxy".into(), "garden".into(), "meadow".into()],
+            scenes: vec!["ufo".into()],
             rotate_minutes: 4.0,
             max_instances: 3,
             color: "auto".into(),
             tolerance: 5,
-            garden_speed: 1.0,
-            day_cycle_seconds: 300.0,
-            character: "builtin".into(),
+            ufo_pilots: "builtin".into(),
+            lm_backend: "cuda".into(),
+            lm_model_a: "Qwen/Qwen3-0.6B".into(),
+            lm_model_b: "HuggingFaceTB/SmolLM2-1.7B-Instruct".into(),
+            lm_vram_gb: 6.0,
+            lm_quant: "none".into(),
+            lm_python: "python3".into(),
+            lm_think_seconds: 1.0,
+            lm_evolve: true,
         }
     }
 }
@@ -89,23 +111,39 @@ impl Config {
                 "rotate_minutes" => set_num(&mut self.rotate_minutes, v),
                 "max_instances" => set_num(&mut self.max_instances, v),
                 "tolerance" => set_num(&mut self.tolerance, v),
-                "garden_speed" => set_num(&mut self.garden_speed, v),
-                "day_cycle_seconds" => set_num(&mut self.day_cycle_seconds, v),
+                "lm_vram_gb" => set_num(&mut self.lm_vram_gb, v),
+                "lm_think_seconds" => set_num(&mut self.lm_think_seconds, v),
                 "color" => self.color = unquote(v),
-                "character" => self.character = unquote(v),
+                "ufo_pilots" | "pilots" => self.ufo_pilots = unquote(v),
+                "lm_backend" => self.lm_backend = unquote(v),
+                "lm_model_a" => self.lm_model_a = unquote(v),
+                "lm_model_b" => self.lm_model_b = unquote(v),
+                "lm_quant" => self.lm_quant = unquote(v),
+                "lm_python" => self.lm_python = unquote(v),
+                "lm_evolve" => self.lm_evolve = !matches!(unquote(v).to_lowercase().as_str(), "false" | "0" | "no" | "off"),
                 "scenes" => {
                     let list: Vec<String> = v.trim_start_matches('[').trim_end_matches(']').split(',').map(unquote).filter(|s| !s.is_empty()).collect();
                     if !list.is_empty() {
                         self.scenes = list;
                     }
                 }
-                _ => {}
+                _ => {} // unknown keys (including v0.1's garden/meadow keys) are ignored
             }
         }
         self.fps = self.fps.clamp(1, 120);
         self.unfocused_fps = self.unfocused_fps.clamp(1, 120);
         self.idle_seconds = self.idle_seconds.max(5);
         self.tolerance = self.tolerance.clamp(0, 32);
+        self.lm_vram_gb = self.lm_vram_gb.clamp(1.0, 512.0);
+        if !matches!(self.ufo_pilots.as_str(), "builtin" | "lm") {
+            self.ufo_pilots = "builtin".into();
+        }
+        if !matches!(self.lm_backend.as_str(), "auto" | "cuda" | "mlx") {
+            self.lm_backend = "auto".into();
+        }
+        if !matches!(self.lm_quant.as_str(), "none" | "8bit" | "4bit") {
+            self.lm_quant = "none".into();
+        }
     }
 
     pub fn truecolor(&self) -> bool {

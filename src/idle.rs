@@ -62,19 +62,35 @@ pub fn resume() {
 }
 
 struct ProcStat {
-    state: char,
     pgrp: i32,
     tpgid: i32,
+    sleeping: bool,
 }
 
+/// Linux: /proc/<pid>/stat (state, pgrp, tpgid). Zero syscalls beyond one read.
+#[cfg(target_os = "linux")]
 fn proc_stat(pid: i32) -> Option<ProcStat> {
     let s = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let rest = &s[s.rfind(')')? + 2..];
     let f: Vec<&str> = rest.split_whitespace().collect();
-    Some(ProcStat { state: f.first()?.chars().next()?, pgrp: f.get(2)?.parse().ok()?, tpgid: f.get(5)?.parse().ok()? })
+    Some(ProcStat { sleeping: f.first()?.starts_with('S'), pgrp: f.get(2)?.parse().ok()?, tpgid: f.get(5)?.parse().ok()? })
 }
 
-fn tty_of(pid: i32) -> Option<PathBuf> {
+/// macOS/BSD: `ps` knows the tty's foreground process group (tpgid). One exec per poll
+/// (every 1-10 s) is fine for a watcher that otherwise sleeps.
+#[cfg(not(target_os = "linux"))]
+fn proc_stat(pid: i32) -> Option<ProcStat> {
+    let out = std::process::Command::new("ps").args(["-o", "pgid=,tpgid=,stat=", "-p", &pid.to_string()]).output().ok()?;
+    let s = String::from_utf8_lossy(&out.stdout);
+    let f: Vec<&str> = s.split_whitespace().collect();
+    Some(ProcStat { pgrp: f.first()?.parse().ok()?, tpgid: f.get(1)?.parse().ok()?, sleeping: f.get(2).map_or(true, |st| st.starts_with('S') || st.starts_with('I')) })
+}
+
+/// The shell's terminal: `--tty` from the shell snippet, else (Linux) its stdin link.
+fn tty_of(pid: i32, hint: Option<&str>) -> Option<PathBuf> {
+    if let Some(t) = hint.filter(|t| t.starts_with("/dev/")) {
+        return Some(PathBuf::from(t));
+    }
     let p = fs::read_link(format!("/proc/{pid}/fd/0")).ok()?;
     let s = p.to_string_lossy();
     if s.starts_with("/dev/pts/") || s.starts_with("/dev/tty") {
@@ -90,7 +106,27 @@ fn atime(p: &PathBuf) -> u64 {
 }
 
 fn alive(pid: i32) -> bool {
-    unsafe { libc::kill(pid, 0) == 0 || *libc::__errno_location() == libc::EPERM }
+    let ok = unsafe { libc::kill(pid, 0) == 0 };
+    ok || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+/// Is `pid` one of our `reverie watch` processes? (before replacing it)
+fn is_watcher(pid: i32) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        fs::read_to_string(format!("/proc/{pid}/cmdline")).map(|c| c.contains("reverie") && c.contains("watch")).unwrap_or(false)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::process::Command::new("ps")
+            .args(["-o", "command=", "-p", &pid.to_string()])
+            .output()
+            .map(|o| {
+                let c = String::from_utf8_lossy(&o.stdout);
+                c.contains("reverie") && c.contains("watch")
+            })
+            .unwrap_or(false)
+    }
 }
 
 fn daemonize() -> bool {
@@ -115,9 +151,9 @@ fn daemonize() -> bool {
     true
 }
 
-pub fn watch(pid: i32, idle_override: Option<u64>, daemon: bool) -> i32 {
-    let Some(tty) = tty_of(pid) else {
-        eprintln!("reverie watch: pid {pid} has no terminal on stdin");
+pub fn watch(pid: i32, tty_hint: Option<&str>, idle_override: Option<u64>, daemon: bool) -> i32 {
+    let Some(tty) = tty_of(pid, tty_hint) else {
+        eprintln!("reverie watch: pid {pid} has no terminal (pass --tty \"$(tty)\")");
         return 1;
     };
     if daemon && !daemonize() {
@@ -126,11 +162,8 @@ pub fn watch(pid: i32, idle_override: Option<u64>, daemon: bool) -> i32 {
     // one watcher per shell: replace any older one
     let pidfile = runtime_dir().join(format!("watch-{pid}"));
     if let Ok(old) = fs::read_to_string(&pidfile).map(|s| s.trim().parse::<i32>().unwrap_or(0)) {
-        if old > 0 && old != std::process::id() as i32 {
-            let is_ours = fs::read_to_string(format!("/proc/{old}/cmdline")).map(|c| c.contains("reverie") && c.contains("watch")).unwrap_or(false);
-            if is_ours {
-                unsafe { libc::kill(old, libc::SIGTERM) };
-            }
+        if old > 0 && old != std::process::id() as i32 && is_watcher(old) {
+            unsafe { libc::kill(old, libc::SIGTERM) };
         }
     }
     let _ = fs::write(&pidfile, std::process::id().to_string());
@@ -149,7 +182,7 @@ pub fn watch(pid: i32, idle_override: Option<u64>, daemon: bool) -> i32 {
         let mut sleep = 5u64;
         if !paused() {
             if let Some(st) = proc_stat(pid) {
-                let at_prompt = st.tpgid == st.pgrp && st.state == 'S';
+                let at_prompt = st.tpgid == st.pgrp && st.sleeping;
                 if at_prompt {
                     let since = now().saturating_sub(atime(&tty).max(last_fire));
                     if since >= idle {
@@ -172,27 +205,45 @@ pub fn watch(pid: i32, idle_override: Option<u64>, daemon: bool) -> i32 {
     0
 }
 
-/// Stop every watcher belonging to this user (used by `uninstall`).
+/// Stop every watcher belonging to this user (used by `uninstall`): the pidfiles in the
+/// runtime dir, plus (Linux) a /proc sweep for watchers from another XDG_RUNTIME_DIR.
 pub fn stop_watchers() -> usize {
     let me = std::process::id() as i32;
-    let uid = unsafe { libc::getuid() };
+    let mut seen = std::collections::HashSet::new();
     let mut n = 0;
-    if let Ok(rd) = fs::read_dir("/proc") {
+    if let Ok(rd) = fs::read_dir(runtime_dir()) {
         for e in rd.flatten() {
-            let Ok(pid) = e.file_name().to_string_lossy().parse::<i32>() else { continue };
-            if pid == me {
-                continue;
-            }
-            use std::os::unix::fs::MetadataExt;
-            if fs::metadata(e.path()).map(|m| m.uid() != uid).unwrap_or(true) {
-                continue;
-            }
-            let cmd = fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
-            let parts: Vec<&[u8]> = cmd.split(|&b| b == 0).collect();
-            let is_rev = parts.first().map(|p| p.ends_with(b"reverie")).unwrap_or(false);
-            if is_rev && parts.get(1) == Some(&&b"watch"[..]) {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let Some(rest) = name.strip_prefix("watch-") else { continue };
+            let pid: i32 = fs::read_to_string(e.path()).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+            if pid > 0 && pid != me && is_watcher(pid) && seen.insert(pid) {
                 unsafe { libc::kill(pid, libc::SIGTERM) };
                 n += 1;
+            }
+            let _ = rest;
+            let _ = fs::remove_file(e.path());
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let uid = unsafe { libc::getuid() };
+        if let Ok(rd) = fs::read_dir("/proc") {
+            for e in rd.flatten() {
+                let Ok(pid) = e.file_name().to_string_lossy().parse::<i32>() else { continue };
+                if pid == me || seen.contains(&pid) {
+                    continue;
+                }
+                use std::os::unix::fs::MetadataExt;
+                if fs::metadata(e.path()).map(|m| m.uid() != uid).unwrap_or(true) {
+                    continue;
+                }
+                let cmd = fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+                let parts: Vec<&[u8]> = cmd.split(|&b| b == 0).collect();
+                let is_rev = parts.first().map(|p| p.ends_with(b"reverie")).unwrap_or(false);
+                if is_rev && parts.get(1) == Some(&&b"watch"[..]) {
+                    unsafe { libc::kill(pid, libc::SIGTERM) };
+                    n += 1;
+                }
             }
         }
     }

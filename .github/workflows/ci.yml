@@ -11,6 +11,15 @@ jobs:
       - run: reverie bench --size 200x55 --frames 600 | tee bench.jsonl
       - run: python3 eval/check_bench.py bench.jsonl
       - run: python3 eval/test_terminal.py
+      - run: python3 eval/test_arena.py          # sidecar parsing/lessons, no GPU needed
+  macos:
+    runs-on: macos-latest                          # Apple silicon: builds + the GPU-free checks
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --release
+      - run: ./target/release/reverie bench --size 200x55 --frames 300 | tee bench.jsonl
+      - run: python3 eval/check_bench.py bench.jsonl
+      - run: python3 eval/test_arena.py
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
