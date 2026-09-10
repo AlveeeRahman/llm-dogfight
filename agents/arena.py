@@ -10,11 +10,11 @@ Line protocol on stdin/stdout (stdout is reserved for it; everything else goes t
 which reverie redirects to ~/.local/state/reverie/arena.log):
 
   reverie -> arena   {"t":"obs","team":0,"tick":7,...}   the situation for one team, one JSON line
-                     {"t":"loss","team":1,"ship":5,...}   a saucer was destroyed (evolve mode: write a lesson)
+                     {"t":"loss","kind":"ship"|"round",...} a saucer (or the whole fleet) was lost: write a lesson
                      {"t":"quit"}
   arena -> reverie   STATUS <text>                        progress (loading, ...)
                      READY <team> <label> <mem_gb>        that team's commander is online
-                     ORDERS <team> <tick> S0:attack:3 S1:flee ... D:<n> | <one-line comms>
+                     ORDERS <team> <tick> S0:attack:3 S1:flee ... | <battle cry, only after a loss>
                      LESSON <team> <text>                 what the commander learned from a loss
                      ERROR <text>                         fatal; the arena exits
 
@@ -37,9 +37,8 @@ import time
 
 TEAM_NAMES = ["ZORB", "KRELL"]
 # the optional argument must stay on the same line, or "flee\nS2: ..." would eat "S2"
-ORDER_RE = re.compile(r"S\s*(\d+)\s*[:\-=]\s*(attack|hunt|flee|abduct|guard|patrol)\b(?:[ \t]*[ESC]?[ \t]*(\d+))?", re.I)
+ORDER_RE = re.compile(r"S\s*(\d+)\s*[:\-=]\s*(attack|hunt|flee|abduct|guard|patrol|idle|wait|hold)\b(?:[ \t]*[ESC]?[ \t]*(\d+))?", re.I)
 SAY_RE = re.compile(r"SAY\s*[:\-=]\s*(.+)", re.I)
-DEPLOY_RE = re.compile(r"DEPLOY\s*[:\-=]\s*(\d+)", re.I)
 SAY_OK = re.compile(r"[^A-Za-z0-9 .,!?'\-:;()]")
 LESSON_RE = re.compile(r"LESSON\s*[:\-=]\s*(.+)", re.I)
 TEMPLATE_ECHO = re.compile(r"battle cry|defiant|own words|characters|<|>", re.I)
@@ -57,8 +56,14 @@ def emit(line):
     sys.stdout.flush()
 
 
+def split_rev(model_id):
+    """`org/name@revision` -> (org/name, revision). Pin a commit for reproducible weights."""
+    mid, _, rev = model_id.partition("@")
+    return mid, (rev or "main")
+
+
 def label_of(model_id):
-    return model_id.rstrip("/").split("/")[-1][:24]
+    return split_rev(model_id)[0].rstrip("/").split("/")[-1][:24]
 
 
 # ------------------------------------------------------------------ backends
@@ -91,7 +96,8 @@ class TorchBackend:
 
     def load(self, model_id):
         from transformers import AutoModelForCausalLM, AutoTokenizer
-        tok = AutoTokenizer.from_pretrained(model_id)
+        model_id, rev = split_rev(model_id)
+        tok = AutoTokenizer.from_pretrained(model_id, revision=rev)
         kw = {}
         if self.quant in ("8bit", "4bit"):
             from transformers import BitsAndBytesConfig  # needs `pip install bitsandbytes`
@@ -99,9 +105,9 @@ class TorchBackend:
                                                            bnb_4bit_compute_dtype=self.dtype)
             kw["device_map"] = {"": 0}
         try:
-            model = AutoModelForCausalLM.from_pretrained(model_id, dtype=self.dtype, **kw)
+            model = AutoModelForCausalLM.from_pretrained(model_id, revision=rev, dtype=self.dtype, **kw)
         except TypeError:  # transformers < 5 spelling
-            model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=self.dtype, **kw)
+            model = AutoModelForCausalLM.from_pretrained(model_id, revision=rev, torch_dtype=self.dtype, **kw)
         if "device_map" not in kw:
             model.to(self.dev)
         model.eval()
@@ -139,7 +145,7 @@ class MlxBackend:
             log("mlx: --quant is ignored; pick a pre-quantized repo such as mlx-community/Qwen3-0.6B-4bit")
 
     def load(self, model_id):
-        model, tok = self._load(model_id)
+        model, tok = self._load(split_rev(model_id)[0])  # mlx-lm resolves the repo itself; no revision pinning
         return Commander(model_id, model, tok)
 
     def generate(self, c, messages, max_new):
@@ -179,9 +185,11 @@ def make_backend(name, vram_gb, quant):
 # ------------------------------------------------------------------ prompting
 
 SYSTEM = ("You are the commander of team {me} in an arcade flying-saucer dogfight against team {foe}. "
-          "Each turn you give one order per ship. Win by destroying enemy saucers; stealing cows is a bonus. "
-          "Focus fire on damaged enemies, pull badly damaged ships out, only abduct cows when enemies are far. "
-          "Idle patrols lose: most ships should attack or hunt. Answer only in the required format.")
+          "Each turn you give one order per ship: attack, hunt, flee or abduct; there is no idle order. "
+          "Score = enemy saucers destroyed + cows abducted; a team whose saucers are all destroyed loses the round. "
+          "Destroyed saucers are replaced automatically after a few seconds. Focus fire on damaged enemies, "
+          "flee with ships below 35 hp when an enemy is in range, and send a ship to abduct a cow whenever the cow "
+          "is close (within 20) and no enemy is within laser range. Answer only in the required format.")
 
 
 class Lessons:
@@ -191,7 +199,8 @@ class Lessons:
         self.path = path
         self.items = []
         if path and os.path.exists(path):
-            self.items = [l.strip() for l in open(path, encoding="utf-8") if l.strip()][-MAX_LESSONS:]
+            with open(path, encoding="utf-8") as f:
+                self.items = [line.strip() for line in f if line.strip()][-MAX_LESSONS:]
 
     @staticmethod
     def words(text):
@@ -217,7 +226,7 @@ class Lessons:
     def prompt(self):
         if not self.items:
             return ""
-        return " Lessons from your past losses, obey them: " + " ".join(f"({i + 1}) {l}" for i, l in enumerate(self.items))
+        return " Lessons from your past losses, obey them: " + " ".join(f"({i + 1}) {item}" for i, item in enumerate(self.items))
 
 
 def system_prompt(team, lessons):
@@ -226,7 +235,11 @@ def system_prompt(team, lessons):
 
 def describe_loss(loss):
     """The post-mortem the losing commander reflects on."""
-    t = loss["team"]
+    if loss.get("kind") == "round":
+        return (f"You lost game {loss['round']}: no saucer left in the air. You destroyed {loss['kills']} enemy saucers and lost "
+                f"{loss['losses']}; you had {loss.get('regens_left', 0)} reinforcements left. The enemy still had "
+                f"{loss['foes_left'] or 'no'} saucers in the air. You abducted {loss['cows']} cows. The next game starts in "
+                f"10 seconds and you get one extra saucer.")
     parts = [f"Your saucer S{loss['ship']} was destroyed by enemy E{loss['killer']} (which had {loss['killer_hp']} hp)",
              f"at distance {loss['dist']} (laser range {loss['range']}), while its order was '{loss['order']}'.",
              f"At that moment {loss['enemies_near']} enemies and {loss['allies_near']} allies were within range of it."]
@@ -259,13 +272,23 @@ def reflect(backend, cmdr, lessons, loss):
 def describe(obs):
     team = obs["team"]
     me, foe = TEAM_NAMES[team], TEAM_NAMES[1 - team]
-    sc = obs["score"]
-    lines = [f"Score: {me} {sc[team]}, {foe} {sc[1 - team]}. Field: x 0-100 left to right, y 0-{obs['fh']} top to bottom, "
-             f"ground at y={obs['ground']}. Laser range {obs['range']}."]
+    sc, cows = obs["score"], obs.get("cows_taken", [0, 0])
+    rounds = obs.get("rounds", [0, 0])
+    lines = [f"Game {obs.get('round', 1)} (games won: {me} {rounds[team]}, {foe} {rounds[1 - team]}). "
+             f"This game: {me} {sc[team]} kills + {cows[team]} cows, {foe} {sc[1 - team]} kills + {cows[1 - team]} cows. "
+             f"Field: x 0-100 left to right, y 0-{obs['fh']} top to bottom, ground at y={obs['ground']}. Laser range {obs['range']}."]
+    if "regens" in obs:
+        rg, al = obs["regens"], obs.get("alive", [0, 0])
+        lines.append(f"Saucers in the air: {me} {al[team]}, {foe} {al[1 - team]} (max {obs.get('max_alive', 4)} each). "
+                     f"Reinforcements left this game: {me} {rg[team]}, {foe} {rg[1 - team]}. A team with no saucer in the air loses the game.")
+    if obs.get("doctrine"):
+        lines.append(f"Your doctrine (generation {obs.get('gen', 0)}, enforced by your ship AI; orders outside it are corrected): "
+                     f"{obs['doctrine']}." + (f" {obs['corrected']} of your last orders were corrected." if obs.get("corrected") else ""))
     lines.append("Your ships (S):")
     for s in obs["mine"]:
         near = f", nearest enemy E{s['near']} at distance {s['dist']}" if s.get("near", -1) >= 0 else ", no enemy in the air"
-        lines.append(f"- S{s['id']} at ({s['x']},{s['y']}) hp {s['hp']}{near}, current order: {s['order']}")
+        cow = f", nearest free cow C{s['cow']} at distance {s['cowd']}" if s.get("cow", -1) >= 0 else ""
+        lines.append(f"- S{s['id']} at ({s['x']},{s['y']}) hp {s['hp']}{near}{cow}, current order: {s['order']}")
     if not obs["mine"]:
         lines.append("- (all respawning)")
     lines.append("Enemy ships (E):")
@@ -280,20 +303,14 @@ def describe(obs):
         lines.append("Recent events: " + "; ".join(obs["events"]))
     if obs.get("foe_say"):
         lines.append(f'Enemy commander said: "{obs["foe_say"]}"')
-    free = int(obs.get("free_slots", 0))
-    if free:
-        lines.append(f"Reinforcements: {free} of your saucers are destroyed. You may launch replacements now with a line "
-                     f"'DEPLOY: <n>' (n up to {free}); they warp in at the top of the screen.")
-    lines.append("Orders available: attack E<n> (chase and shoot), hunt (attack the nearest enemy), flee (retreat and dodge), "
-                 "abduct C<n> (beam up a cow), guard S<n> (fly with an ally), patrol (roam).")
+    lines.append("Orders available: attack E<n> (chase and shoot that enemy), hunt (attack the nearest enemy), "
+                 "flee (retreat and dodge), abduct C<n> (fly to that cow and beam it up).")
     if obs.get("cry"):
         lines.append("One of your saucers was just destroyed. End your reply with a SAY line: a defiant battle cry "
                      "to the enemy in your own words, max 40 characters.")
     lines.append("Reply with exactly this format and nothing else:")
     for s in obs["mine"]:
         lines.append(f"S{s['id']}: <order>")
-    if free:
-        lines.append(f"DEPLOY: <0-{free}>")
     if obs.get("cry"):
         lines.append("SAY: <battle cry>")
     return "\n".join(lines)
@@ -307,25 +324,19 @@ def parse_reply(text, obs):
         sid, verb, arg = int(m.group(1)), m.group(2).lower(), m.group(3)
         if sid not in mine:
             continue
-        if verb in ("attack", "abduct", "guard"):
-            if arg is None:
-                verb = "hunt" if verb != "abduct" else "patrol"
-                orders[sid] = verb
-            else:
-                orders[sid] = f"{verb}:{int(arg)}"
-        else:
-            orders[sid] = verb
+        if verb in ("attack", "abduct"):
+            orders[sid] = f"{verb}:{int(arg)}" if arg is not None else "hunt"
+        elif verb == "flee":
+            orders[sid] = "flee"
+        else:  # hunt, and anything idle-ish the model invents
+            orders[sid] = "hunt"
     say = ""
     m = SAY_RE.search(text) if obs.get("cry") else None
     if m:
         say = SAY_OK.sub("", m.group(1)).strip()[:40]
         if TEMPLATE_ECHO.search(say):  # the model parroted the instructions
             say = ""
-    deploy = 0
-    m = DEPLOY_RE.search(text)
-    if m:
-        deploy = min(int(m.group(1)), int(obs.get("free_slots", 0)))
-    return orders, say, deploy
+    return orders, say, 0
 
 
 def decide(backend, cmdr, obs, lessons=None):
@@ -337,7 +348,7 @@ def decide(backend, cmdr, obs, lessons=None):
     text, n_tok = backend.generate(cmdr, messages, max_new)
     dt = time.time() - t0
     orders, say, deploy = parse_reply(text, obs)
-    log(f"team {team} {cmdr.label}: {n_tok} tok in {dt:.2f}s ({n_tok / max(dt, 1e-3):.0f} tok/s) orders={orders} deploy={deploy} say={say!r}")
+    log(f"team {team} {cmdr.label}: {n_tok} tok in {dt:.2f}s ({n_tok / max(dt, 1e-3):.0f} tok/s) orders={orders} say={say!r}")
     log("   raw:", text.replace("\n", " / ")[:300])
     return orders, say, deploy
 
@@ -347,7 +358,8 @@ def decide(backend, cmdr, obs, lessons=None):
 def is_cached(model_id):
     try:
         from huggingface_hub import try_to_load_from_cache
-        r = try_to_load_from_cache(model_id, "config.json")
+        mid, rev = split_rev(model_id)
+        r = try_to_load_from_cache(mid, "config.json", revision=rev)
         return isinstance(r, str)
     except Exception:
         return False
@@ -380,21 +392,22 @@ def check(args):
         return 0
     be = make_backend(name, args.vram_gb, args.quant)
     cmdrs = []
-    for team, mid in enumerate((args.model_a, args.model_b)):
+    for mid in (args.model_a, args.model_b):
         t0 = time.time()
         cmdrs.append(be.load(mid))
         print(f"loaded      {mid} in {time.time() - t0:.1f}s, peak memory {be.mem_gb():.2f} GB")
-    obs = {"team": 0, "tick": 1, "score": [0, 0], "fh": 55, "ground": 47, "range": 60, "free_slots": 1, "cry": True,
-           "mine": [{"id": 0, "x": 20, "y": 20, "hp": 100, "near": 3, "dist": 30, "order": "patrol"},
-                    {"id": 1, "x": 10, "y": 30, "hp": 40, "near": 3, "dist": 35, "order": "patrol"}],
+    obs = {"team": 0, "tick": 1, "score": [0, 0], "cows_taken": [0, 0], "rounds": [0, 0], "round": 1, "fh": 55, "ground": 47,
+           "range": 60, "cry": True,
+           "mine": [{"id": 0, "x": 20, "y": 20, "hp": 100, "near": 3, "dist": 30, "cow": 0, "cowd": 12, "order": "hunt"},
+                    {"id": 1, "x": 10, "y": 30, "hp": 40, "near": 3, "dist": 35, "cow": 0, "cowd": 18, "order": "hunt"}],
            "foes": [{"id": 3, "x": 50, "y": 22, "hp": 60, "target": 1}, {"id": 4, "x": 80, "y": 15, "hp": 100, "target": -1}],
            "cows": [{"id": 0, "x": 15, "state": "free"}, {"id": 1, "x": 70, "state": "free"}], "events": [], "foe_say": ""}
     for team, c in enumerate(cmdrs):
         obs["team"] = team
         t0 = time.time()
-        orders, say, deploy = decide(be, c, obs)
-        print(f"decision    team {team} {c.label}: {time.time() - t0:.2f}s  orders={orders}  deploy={deploy}  say={say!r}")
-    loss = {"team": 1, "ship": 3, "killer": 0, "killer_hp": 80, "dist": 20, "range": 60, "order": "abduct C1",
+        orders, say, _ = decide(be, c, obs)
+        print(f"decision    team {team} {c.label}: {time.time() - t0:.2f}s  orders={orders}  say={say!r}")
+    loss = {"team": 1, "kind": "ship", "ship": 3, "killer": 0, "killer_hp": 80, "dist": 20, "range": 60, "order": "abduct C1",
             "enemies_near": 2, "allies_near": 0, "low_for": 6, "alive_for": 40, "x": 70, "y": 40, "ground": 47}
     t0 = time.time()
     print(f"reflection  team 1 {cmdrs[1].label}: {reflect(be, cmdrs[1], Lessons(None), loss)!r} ({time.time() - t0:.2f}s)")
@@ -405,14 +418,19 @@ def check(args):
 def pull(args):
     from huggingface_hub import snapshot_download
     pats = ["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model", "*.tiktoken"]
-    for mid in (args.model_a, args.model_b):
+    for spec in (args.model_a, args.model_b):
+        mid, rev = split_rev(spec)
         t0 = time.time()
-        p = snapshot_download(mid, allow_patterns=pats)
+        p = snapshot_download(mid, revision=rev, allow_patterns=pats)
         print(f"{mid} -> {p} ({time.time() - t0:.0f}s)")
     return 0
 
 
 def serve(args):
+    try:
+        os.nice(5)  # the terminal animation has priority over token generation
+    except (AttributeError, OSError):
+        pass
     name = pick_backend(args.backend)
     emit(f"STATUS starting {name} backend")
     try:
@@ -422,7 +440,7 @@ def serve(args):
         return 1
     cmdrs = []
     for team, mid in enumerate((args.model_a, args.model_b)):
-        emit(f"STATUS loading {label_of(mid)} for {TEAM_NAMES[team]}")
+        emit(f"STATUS {'loading' if is_cached(mid) else 'downloading (first run, a few minutes)'} {label_of(mid)} for {TEAM_NAMES[team]}")
         try:
             t0 = time.time()
             c = be.load(mid)
@@ -465,12 +483,12 @@ def serve(args):
             continue
         team = int(obs["team"])
         try:
-            orders, say, deploy = decide(be, cmdrs[team], obs, lessons[team])
+            orders, say, _ = decide(be, cmdrs[team], obs, lessons[team])
         except Exception as e:
             log("decide failed:", repr(e))
-            orders, say, deploy = {}, "", 0
+            orders, say = {}, ""
         body = " ".join(f"S{sid}:{o}" for sid, o in sorted(orders.items()))
-        emit(f"ORDERS {team} {obs.get('tick', 0)} {body} D:{deploy} | {say}")
+        emit(f"ORDERS {team} {obs.get('tick', 0)} {body} | {say}")
     log("bye")
     return 0
 

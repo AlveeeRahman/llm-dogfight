@@ -35,6 +35,7 @@ pub fn acquire_slot(max: u32) -> Option<fs::File> {
     for i in 0..max.max(1) {
         let p = runtime_dir().join(format!("slot-{i}"));
         if let Ok(f) = fs::OpenOptions::new().create(true).truncate(false).write(true).open(&p) {
+            // SAFETY: `f` is an open file we own; flock on its descriptor has no memory preconditions.
             if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
                 return Some(f);
             }
@@ -83,7 +84,11 @@ fn proc_stat(pid: i32) -> Option<ProcStat> {
     let out = std::process::Command::new("ps").args(["-o", "pgid=,tpgid=,stat=", "-p", &pid.to_string()]).output().ok()?;
     let s = String::from_utf8_lossy(&out.stdout);
     let f: Vec<&str> = s.split_whitespace().collect();
-    Some(ProcStat { pgrp: f.first()?.parse().ok()?, tpgid: f.get(1)?.parse().ok()?, sleeping: f.get(2).map_or(true, |st| st.starts_with('S') || st.starts_with('I')) })
+    Some(ProcStat {
+        pgrp: f.first()?.parse().ok()?,
+        tpgid: f.get(1)?.parse().ok()?,
+        sleeping: f.get(2).map_or(true, |st| st.starts_with('S') || st.starts_with('I')),
+    })
 }
 
 /// The shell's terminal: `--tty` from the shell snippet, else (Linux) its stdin link.
@@ -106,6 +111,7 @@ fn atime(p: &PathBuf) -> u64 {
 }
 
 fn alive(pid: i32) -> bool {
+    // SAFETY: signal 0 only probes for existence and permission; nothing is delivered.
     let ok = unsafe { libc::kill(pid, 0) == 0 };
     ok || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
@@ -130,6 +136,9 @@ fn is_watcher(pid: i32) -> bool {
 }
 
 fn daemonize() -> bool {
+    // SAFETY: called once at startup from `watch`, before any thread exists, so fork is
+    // sound; the child only calls async-signal-safe functions (setsid, open, dup2, close,
+    // chdir) with valid arguments before returning to Rust.
     unsafe {
         match libc::fork() {
             -1 => return false,
@@ -137,7 +146,7 @@ fn daemonize() -> bool {
             _ => libc::_exit(0),
         }
         libc::setsid();
-        let null = libc::open(b"/dev/null\0".as_ptr() as *const libc::c_char, libc::O_RDWR);
+        let null = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
         if null >= 0 {
             libc::dup2(null, 0);
             libc::dup2(null, 1);
@@ -146,7 +155,7 @@ fn daemonize() -> bool {
                 libc::close(null);
             }
         }
-        libc::chdir(b"/\0".as_ptr() as *const libc::c_char);
+        libc::chdir(c"/".as_ptr());
     }
     true
 }
@@ -163,6 +172,7 @@ pub fn watch(pid: i32, tty_hint: Option<&str>, idle_override: Option<u64>, daemo
     let pidfile = runtime_dir().join(format!("watch-{pid}"));
     if let Ok(old) = fs::read_to_string(&pidfile).map(|s| s.trim().parse::<i32>().unwrap_or(0)) {
         if old > 0 && old != std::process::id() as i32 && is_watcher(old) {
+            // SAFETY: sending a signal has no memory preconditions; `old` was verified to be our own watcher.
             unsafe { libc::kill(old, libc::SIGTERM) };
         }
     }
@@ -187,6 +197,7 @@ pub fn watch(pid: i32, tty_hint: Option<&str>, idle_override: Option<u64>, daemo
                     let since = now().saturating_sub(atime(&tty).max(last_fire));
                     if since >= idle {
                         let _ = fs::write(marker(pid), now().to_string());
+                        // SAFETY: sending a signal has no memory preconditions; `pid` is the shell that started us.
                         unsafe { libc::kill(pid, libc::SIGALRM) };
                         last_fire = now();
                         sleep = 2;
@@ -217,6 +228,7 @@ pub fn stop_watchers() -> usize {
             let Some(rest) = name.strip_prefix("watch-") else { continue };
             let pid: i32 = fs::read_to_string(e.path()).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
             if pid > 0 && pid != me && is_watcher(pid) && seen.insert(pid) {
+                // SAFETY: sending a signal has no memory preconditions; `pid` was verified to be a watcher.
                 unsafe { libc::kill(pid, libc::SIGTERM) };
                 n += 1;
             }
@@ -226,6 +238,7 @@ pub fn stop_watchers() -> usize {
     }
     #[cfg(target_os = "linux")]
     {
+        // SAFETY: getuid never fails and has no preconditions.
         let uid = unsafe { libc::getuid() };
         if let Ok(rd) = fs::read_dir("/proc") {
             for e in rd.flatten() {
@@ -241,6 +254,7 @@ pub fn stop_watchers() -> usize {
                 let parts: Vec<&[u8]> = cmd.split(|&b| b == 0).collect();
                 let is_rev = parts.first().map(|p| p.ends_with(b"reverie")).unwrap_or(false);
                 if is_rev && parts.get(1) == Some(&&b"watch"[..]) {
+                    // SAFETY: sending a signal has no memory preconditions; the cmdline was checked to be `reverie watch`.
                     unsafe { libc::kill(pid, libc::SIGTERM) };
                     n += 1;
                 }

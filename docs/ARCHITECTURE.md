@@ -1,8 +1,10 @@
-# reverie — engineering handoff
+# reverie — architecture
 
-Reference for an agent or engineer taking over. `CLAUDE.md` holds the rules; this file holds the
-detail. State at handoff: **v0.2 (2026-09-10)** — one scene (`ufo`) with two kinds of pilots:
-built-in heuristics, or two small language models (`ufo-battle`) in a Python sidecar.
+How the tool is built and why, for contributors. State: **v0.3.0** — a terminal UFO dogfight flown
+by two small local language models (`reverie`), with the built-in pilots as the no-GPU baseline
+(`reverie ufo`) and an optional idle-screensaver mode (`reverie install`). One scene, two kinds of
+pilots. Working rules: `scripts/qa.sh --full` must be green before a change is done; the files
+under `eval/` are the measuring instruments and are not edited to make something pass.
 
 ---
 
@@ -86,7 +88,7 @@ config lists both `ufo` and `ufo-battle`).
 
 | file | role |
 |---|---|
-| `src/main.rs` | CLI (hand-rolled parser): `run [cuda|mlx] [ufo|ufo-battle]`, `arena [check|pull|lessons|forget]`, `bench`, `snapshot`, install/uninstall/pause/status |
+| `src/main.rs` | CLI (hand-rolled parser): `reverie [cuda|mlx|evolve|ufo]`, `run ...` long form, `arena check|pull|lessons`, `reset`, `remove`, `bench`, `snapshot`, install/uninstall/pause/status |
 | `src/app.rs` | the screensaver loop |
 | `src/term.rs` | raw mode, signals, restore guarantees, input |
 | `src/canvas.rs`, `src/encode.rs` | framebuffer + AA primitives; diff encoder |
@@ -101,38 +103,58 @@ config lists both `ufo` and `ufo-battle`).
 
 ## 5. The ufo scene
 
-**Orders** (`arena::Order`): `Attack(enemy)`, `Hunt` (nearest), `Flee`, `Abduct(cow)`,
-`Guard(ally)`, `Patrol`. `Ufo::execute` turns an order into a desired direction + a fire target,
-degrades invalid orders (dead target, taken cow, dead ally) to `Hunt`, then applies ally
+**Orders** (`arena::Order`): `Attack(enemy)`, `Hunt` (nearest), `Flee`, `Abduct(cow)`; `Guard` and
+`Patrol` exist in the enum for the built-in commander only (the LM menu has no idle order and the
+sidecar maps anything else to hunt). `Ufo::execute` turns an order into a desired direction + a
+fire target, degrades invalid orders (dead target, taken cow) to `Hunt`, then applies ally
 separation, soft world bounds and acceleration limits. Attack/Hunt use lead pursuit until 75% of
-range, then orbit at half range; Guard/Patrol fire opportunistically at anything in range;
-Flee/Abduct don't fire.
+range, then orbit at half range; a beaming saucer fires back at anything within half range.
 
 **Built-in commander** (`builtin_order`, used by `ufo` and by every team whose model isn't ready):
-the v0.1 heuristics expressed as an order per frame: keep abducting unless disturbed; abduct when
-bored and no enemy within 1.6× range; flee below 35 hp with an enemy within 0.8× range; else attack
-the sticky target (replaced only by an enemy 40% closer); else patrol. Automatic respawn 2.5–4.5 s.
+the v0.1 heuristics expressed as an order per frame. Automatic respawn 2.5–4.5 s.
 
-**LM mode** (`Ufo::with_arena`): each team has `LM_FLEET = 4` slots. Destroyed saucers stay
-down until the commander answers `DEPLOY: n`; after 25 s with no ship alive one is launched
-anyway (`no_ships` guard). Per team, every `lm_think_seconds` (1.0) and only when no request is
-pending, `observation()` serialises the situation as one JSON line (coordinates in percent of the
-field width; `mine`, `foes`, `cows`, `events` since the last orders, the enemy's last cry,
-`free_slots`, `cry` = one of ours died since the last orders). `lm_poll()` applies `ORDERS`,
-`READY`, `STATUS`, `LESSON`, `ERROR`/exit (→ built-in pilots + a HUD note). Replies older than
-60 s are dropped as stuck.
+**LM mode** (`Ufo::with_arena`): `LM_SLOTS = 5` per team, `lm_max_alive` (4) on screen. `fleet()`
+runs the match rules: a destroyed saucer's slot warps a reinforcement in after `REINFORCE`
+(4 s) while `game.regens[team]` (20 per game) lasts and fewer than `max_alive` are up; a team
+with no saucer alive *and no reinforcement left* loses the game (banner "X WINS GAME n", `game.wins`, cry due, game
+post-mortem, scoreboard saved) and `GAME_PAUSE` (10 s) later `start_game()` fields the loser
+with one extra saucer. Games won / lifetime kills / cows persist in
+`score-<labelA>-vs-<labelB>.txt` (loaded once both READY labels are known). Per team,
+every `lm_think_seconds` (1.0) and only when no request is pending, `observation()` serialises
+the situation as one JSON line (percent coordinates; `mine` with nearest enemy *and* nearest free
+cow distances, `foes`, `cows`, `events`, `foe_say`, `cry`, kills/cows/rounds). Wiped-out teams are
+not asked for orders (except once for the cry).
 
-**Post-mortems** (evolve): on a kill, `post_mortem()` sends `{"t":"loss",...}` for the victim's
-team: killer, killer hp, distance vs range, the victim's order, enemies/allies within range,
-seconds flown below 35 hp, seconds since warp-in, height. The sidecar reflects and answers
-`LESSON <team> <text>`, shown in the HUD for 12 s.
+**Post-mortems** (lessons): `post_mortem()` per destroyed saucer (kind `ship`) and
+`post_mortem_game()` per lost game (kind `round` on the wire: kills, losses, enemy survivors,
+cows, reinforcements left).
 
-**HUD** (glyph layer): row 0 `ZORB n  <model>` left and `<model>  KRELL n` right (`..` while a
-request is pending); row 1+ status while loading, then battle cries (20 s) and lessons (12 s).
-Only ASCII 0x20–0x7E reaches the glyph layer (cell widths).
+**Genetic doctrine** (`evolve` word / `lm_genetic`, src/evolve.rs): `Population` per team
+(6 candidates, persisted in `doctrine-<TEAM>.txt`), one active `Doctrine` each. `Ufo::fleet`
+closes an evaluation window every `SEGMENT` (90 s) or at game end: `window_fitness` = Δkills −
+Δlosses + ½Δcows (± 6 on a decided game) per minute → `Population::score` → next candidate, or
+`breed` (top half survives, uniform crossover + Gaussian mutation at 12% of each range, clamped
+to `BOUNDS`) once all six are scored. `apply_doctrine` corrects every model order: forced flee
+below `flee_hp` with an enemy in range, no flee above `brave_hp` or beyond `courage` × fleet,
+abduct only within `abduct_dist` with no enemy inside `abduct_clear` × range, attack redirected
+to the weakest enemy in range with probability `focus`. The doctrine text is in the prompt and
+the correction count is fed back. Cost: a few float ops per game; no extra model calls.
+
+**Farm and cows:** `NCOWS = 10` spread evenly at start; cows walk to a goal, graze 3–14 s, pick a
+new goal; an abducted cow is replaced immediately by a new one walking out of the barn (so the
+herd stays at 10). Score shows kills, cows and rounds per team.
+
+**Graphics** (all in `render()` / `draw_saucer()`): Bayer-dithered sky gradient; aurora curtain
+(two slow value-noise fields, upper 50% of the sky); three moonlit clouds; dynamic lights
+(`Light` list rebuilt each frame from bolts, rings and beams, applied to the city/field band
+below the tallest building); barn, fence posts, road with dashed centre line and cars
+(headlights/taillights); animated cows (legs, tail, head bob); saucers with shaded hull, team
+stripe, dome specular, chasing rim lights, speed-scaled engine glow, motion trail (7 samples at
+60 ms), shield shimmer on hit, smoke tint when damaged; 3x5 pixel font (`glyph`) for the "ZORB VS KRELL" title card and the "X WINS GAME n" / "GAME n"
+banners; HUD plate over the top rows (kills, cows, games won, reinforcements left, doctrine).
 
 Key numbers: ship size `s = w/26` clamped 3.2..8 px; weapon range `16 s`; built-in fleet
-`w/45` clamped 2..5 per team (4 at 200 cols, matching LM mode).
+`w/45` clamped 2..5 per team; bench 200×55: 0.34 ms/frame, 30.2 KB mean, 42.8 KB p95.
 
 ## 6. The sidecar (agents/arena.py)
 
@@ -184,6 +206,10 @@ keys at `mlx-community/*-4bit` repos.
 `lm_think_seconds`, `lm_evolve`.
 
 **Lessons** `~/.local/state/reverie/lessons/<TEAM>-<model label>.txt`: one lesson per line.
+**Doctrines** `~/.local/state/reverie/doctrine-<TEAM>.txt`: `gen n`, `active k`, then six lines
+`flee_hp brave_hp abduct_dist abduct_clear focus courage fitness evals`.
+**Scoreboard** `~/.local/state/reverie/score-<A>-vs-<B>.txt`: `wins a b`, `kills a b`, `cows a b`, `games n n`.
+**Match log** `~/.local/state/reverie/match.log`: `<t>s game <n> | start|kill|reinforcement|cow|over: ...`.
 
 **Runtime** `${XDG_RUNTIME_DIR:-/tmp}/reverie-$UID/` (mode 0700): `fire-<pid>`, `watch-<pid>`,
 `slot-<n>`. **Pause**: `~/.local/state/reverie/paused-until` (unix secs).
@@ -200,12 +226,41 @@ keys at `mlx-community/*-4bit` repos.
 | `reverie arena check --load` | the GPU side: loads both models, times a decision and a reflection, prints peak memory |
 | `reverie snapshot` + `eval/ansi2png.py` | deterministic frame → PNG for visual review |
 
-Results at handoff (200×55, seed 42): ufo mean 0.15 ms, p95 0.17 ms, 22.6 KB/frame mean,
-29.2 KB p95 (limits 4 ms / 8 ms / 45 KB / 110 KB). Binary 0.69 MB (≤ 4), watcher 1.05 MB RSS
+Results (200×55, seed 42): ufo mean 0.34 ms, p95 0.36 ms, 30.2 KB/frame mean,
+42.8 KB p95 (limits 4 ms / 8 ms / 45 KB / 110 KB). Binary 0.69 MB (≤ 4), watcher 1.05 MB RSS
 (≤ 4). pty harness: 14/14 bash checks pass here; zsh and fish are not installed on this machine
 (the 4 shell-specific checks could not run — not a reverie failure). CI runs all three shells.
 
-## 9. Known issues and backlog
+## 8b. Performance model and the lag guard
+
+Measured with `--perf` in a pty at 200×55, fps 60: update 0.01 ms, render ~0.3 ms, encode
+~0.15 ms, write ~0.35 ms (pty), 58 fps, 3 % CPU, 25–35 KB/frame. Under a pty throttled to
+600 KB/s the write blocks 50–80 ms and the achievable rate is bytes-bound (~15 fps). `app::run`
+therefore has a lag guard: four writes over half a frame period → fps halved for 5 s and the
+encoder tolerance raised by 4 (cap 24); after 8 s of fast writes the tolerance steps back down
+toward the config value. `Arena::send` goes through a writer thread with a 64-line bounded
+queue (`try_send`), so a busy sidecar cannot block the loop; the sidecar itself runs `nice 5`.
+`--perf FILE` / `REVERIE_PERF` writes one line per second (fps, per-stage mean/max ms, KB/frame,
+gap_max, CPU share, guard events) and is the first thing to look at for any lag report.
+
+## 9. Security and code-quality posture
+
+Why Rust: the watcher lives in every shell for hours and the saver seizes the terminal; a
+crash, leak or escape-sequence bug would be felt immediately. What is enforced:
+
+| area | mechanism |
+|---|---|
+| dependencies | one crate (`libc`); `cargo audit` in CI |
+| lints | `cargo clippy --release -- -D warnings` (with `undocumented_unsafe_blocks`), `cargo fmt --check`, 0 build warnings; `overflow-checks = true` in release; `bandit` + `ruff` on the sidecar |
+| `unsafe` | 25 sites, each with a `// SAFETY:` comment, all thin wrappers over single libc calls: termios/ioctl/poll/read/write (term.rs), sigaction/signal (term.rs, main.rs), fork/setsid/dup2/kill/flock (idle.rs), getuid/chmod (config.rs). No raw pointer arithmetic, no `transmute`, no `static mut`. |
+| model output | `arena::sanitize` (cries), `Msg::Lesson` filter and the sidecar's `SAY_OK` regex allow printable ASCII only, so model text can never carry an escape sequence into the terminal, the HUD or a file |
+| protocol | fixed line protocol parsed by hand (`arena::parse`); unknown lines are dropped; numbers are range-checked (team < 2) |
+| files | XDG paths only; runtime dir `0700`; doctrine/score files parse numerically; the sidecar copy is rewritten from the embedded source on every start (a tampered copy is overwritten) |
+| network | none in the binary; the Python side downloads models through `huggingface_hub` |
+| terminal | restore on `leave()`, `Drop`, panic hook, SIGTERM/INT/HUP/QUIT; `panic = "abort"` after the hook; SIGPIPE default so a closed pipe cannot wedge output |
+| removal | `reverie remove` deletes exactly the hook, watchers, config/state/data/runtime dirs and the binary (`--models` for the HF cache); verified in a fake HOME |
+
+## 10. Known issues and backlog
 
 Known, accepted:
 - bash: cursor at column 0 after waking until the first keystroke (line content correct).
@@ -226,7 +281,7 @@ Backlog, roughly by value:
 4. kitty graphics pixel mode for kitty/Ghostty (VTE path must remain default).
 5. Packaging: `.deb`, musl binaries, a `pip`-installable sidecar.
 
-## 10. Decision history (short)
+## 11. Decision history (short)
 
 - Language: Rust after "the tool should not be heavy". GPU/CUDA rejected for *rendering* (no
   pixel protocol; bytes are the bottleneck) but used for the *commanders* via a sidecar.
@@ -238,7 +293,8 @@ Backlog, roughly by value:
   together — the 8 GB target with real margin. Qwen3-1.7B + SmolLM2-1.7B (7.5 GB) was rejected.
 - Orders instead of direct control: LMs answer once a second; the steering layer keeps the
   30–60 fps motion and the original look, so "graphics as used" holds.
-- 4 saucers per team, deploy-on-decision, battle cry only after a loss, evolve as a toggle:
-  user instructions on 2026-09-10.
+- 5 saucers per team, automatic reinforcements, rounds on wipe-out (10 s return), no idle
+  order, 10 cows replenished from the barn, battle cry only after a loss, evolve as a toggle:
+  user instructions on 2026-09-10 (superseding the earlier 4-saucer / DEPLOY-on-decision rule).
 - Harness scene names changed from galaxy/meadow/garden to ufo when those scenes were removed
-  (pass criteria unchanged; logged in BUILD_LOG).
+  (pass criteria unchanged).

@@ -52,10 +52,21 @@ impl Order {
 
 pub enum Msg {
     Status(String),
-    Ready { team: usize, label: String, gb: f32 },
-    Orders { team: usize, orders: Vec<(usize, Order)>, say: String, deploy: usize },
+    Ready {
+        team: usize,
+        label: String,
+        gb: f32,
+    },
+    Orders {
+        team: usize,
+        orders: Vec<(usize, Order)>,
+        say: String,
+    },
     /// the commander wrote a lesson after a loss (evolve mode)
-    Lesson { team: usize, text: String },
+    Lesson {
+        team: usize,
+        text: String,
+    },
     Error(String),
     Exited,
 }
@@ -210,16 +221,8 @@ fn parse(line: &str) -> Option<Msg> {
             let mut it = head.split_whitespace();
             let team: usize = it.next()?.parse().ok()?;
             let _tick = it.next()?;
-            let mut deploy = 0;
-            let mut orders = vec![];
-            for tok in it {
-                if let Some(n) = tok.strip_prefix("D:") {
-                    deploy = n.parse().unwrap_or(0);
-                } else if let Some(o) = Order::parse(tok) {
-                    orders.push(o);
-                }
-            }
-            (team < 2).then_some(Msg::Orders { team, orders, say: sanitize(say), deploy })
+            let orders = it.filter_map(Order::parse).collect();
+            (team < 2).then_some(Msg::Orders { team, orders, say: sanitize(say) })
         }
         _ => None,
     }

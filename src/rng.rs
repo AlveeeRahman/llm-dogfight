@@ -25,7 +25,11 @@ impl Rng {
     }
     #[inline]
     pub fn below(&mut self, n: usize) -> usize {
-        if n == 0 { 0 } else { (self.next_u64() % n as u64) as usize }
+        if n == 0 {
+            0
+        } else {
+            (self.next_u64() % n as u64) as usize
+        }
     }
     #[inline]
     pub fn chance(&mut self, p: f32) -> bool {

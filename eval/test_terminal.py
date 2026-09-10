@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LOCKED correctness harness (agent-oracle segment 1/3).
+"""LOCKED correctness harness.
 
 Drives real interactive shells through a pseudo-terminal and checks the
 [correctness] contract in eval/thresholds.toml. No partial credit.
@@ -92,7 +92,7 @@ def test_run_and_restore(tmp):
     check("restore_termios", a == b and a != "?")
     # SIGTERM path: reverie in the FOREGROUND, SIGTERM from outside (as a logout/kill would).
     # (A backgrounded `reverie &` is stopped by SIGTTOU when it touches the tty — that tested
-    #  job control, not reverie. Fixed 2026-09-10, see BUILD_LOG.)
+    #  job control, not reverie. Fixed 2026-09-10, see CHANGELOG.)
     sh.send(b"reverie run --scene ufo; echo TERM_DONE; stty -g > after2.txt\r")
     sh.pump(2.0, ENTER_ALT); sh.pump(1.0)
     for p in os.listdir("/proc"):

@@ -136,5 +136,9 @@ pub fn uninstall() -> String {
 }
 
 pub fn installed() -> Vec<String> {
-    ["bash", "zsh", "fish"].iter().filter(|s| rc_path(s).and_then(|p| fs::read_to_string(p).ok()).map(|t| t.contains(BEGIN)).unwrap_or(false)).map(|s| s.to_string()).collect()
+    ["bash", "zsh", "fish"]
+        .iter()
+        .filter(|s| rc_path(s).and_then(|p| fs::read_to_string(p).ok()).map(|t| t.contains(BEGIN)).unwrap_or(false))
+        .map(|s| s.to_string())
+        .collect()
 }

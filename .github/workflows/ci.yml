@@ -6,12 +6,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y zsh fish python3-pil python3-numpy
-      - run: cargo build --release
+      - run: cargo fmt --check                     # formatting is enforced
+      - run: cargo clippy --release -- -D warnings # every lint is an error
+      - run: cargo install cargo-audit --locked && cargo audit   # RustSec advisories (1 dependency: libc)
+      - run: cargo build --release --locked
       - run: sudo cp target/release/reverie /usr/local/bin/
       - run: reverie bench --size 200x55 --frames 600 | tee bench.jsonl
       - run: python3 eval/check_bench.py bench.jsonl
       - run: python3 eval/test_terminal.py
       - run: python3 eval/test_arena.py          # sidecar parsing/lessons, no GPU needed
+      - run: pip install --quiet bandit ruff && bandit -q -r agents/ && ruff check agents/ eval/test_arena.py
   macos:
     runs-on: macos-latest                          # Apple silicon: builds + the GPU-free checks
     steps:

@@ -1,8 +1,8 @@
 [package]
 name = "reverie"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
-description = "A tiny terminal screensaver: UFO dogfights over a sleeping city, flown by built-in pilots or by two small language models. Wakes when your shell sits idle."
+description = "A UFO dogfight in your terminal, flown by two small local language models (CUDA or Apple MLX); optional idle-screensaver mode."
 license = "MIT"
 readme = "README.md"
 keywords = ["terminal", "screensaver", "tui", "ascii-art", "animation"]
@@ -16,4 +16,5 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 panic = "abort"   # panic hook still restores the terminal before abort
+overflow-checks = true  # integer overflow aborts (after restoring the terminal) instead of wrapping silently
 strip = true

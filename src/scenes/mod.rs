@@ -44,7 +44,8 @@ pub struct Starfield {
 impl Starfield {
     pub fn new(rng: &mut Rng, w: usize, h: usize, density: f32, max_y: f32) -> Self {
         let n = ((w * h) as f32 * density) as usize;
-        let stars = (0..n).map(|_| (rng.range(0.0, w as f32), rng.range(0.0, max_y), rng.range(0.25, 1.0).powi(2), rng.range(0.0, 6.28))).collect();
+        let stars =
+            (0..n).map(|_| (rng.range(0.0, w as f32), rng.range(0.0, max_y), rng.range(0.25, 1.0).powi(2), rng.range(0.0, std::f32::consts::TAU))).collect();
         Starfield { stars }
     }
     pub fn draw(&self, cv: &mut Canvas, t: f32, visibility: f32) {

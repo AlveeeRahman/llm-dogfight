@@ -35,6 +35,8 @@ extern "C" fn on_signal(sig: libc::c_int) {
 }
 
 fn install_handlers() {
+    // SAFETY: `sigaction` is plain-old-data, so an all-zero value is valid; the handler only
+    // touches atomics (async-signal-safe); the pointers are to live locals.
     unsafe {
         let mut sa: libc::sigaction = std::mem::zeroed();
         sa.sa_sigaction = on_signal as extern "C" fn(libc::c_int) as usize;
@@ -57,6 +59,7 @@ pub fn emergency_restore() {
     raw_write(fd, LEAVE);
     if let Ok(g) = SAVED.lock() {
         if let Some(t) = g.as_ref() {
+            // SAFETY: `t` is the termios we read from this same fd earlier; the pointer is valid for the call.
             unsafe {
                 libc::tcsetattr(fd, libc::TCSANOW, t);
             }
@@ -66,6 +69,7 @@ pub fn emergency_restore() {
 
 fn raw_write(fd: i32, mut buf: &[u8]) -> bool {
     while !buf.is_empty() {
+        // SAFETY: the pointer/length pair comes from a live slice.
         let n = unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len()) };
         if n < 0 {
             let e = io::Error::last_os_error();
@@ -73,6 +77,7 @@ fn raw_write(fd: i32, mut buf: &[u8]) -> bool {
                 Some(libc::EINTR) => continue,
                 Some(libc::EAGAIN) => {
                     let mut p = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+                    // SAFETY: `p` is a valid pollfd array of length 1 for the duration of the call.
                     unsafe { libc::poll(&mut p, 1, 50) };
                     continue;
                 }
@@ -87,6 +92,7 @@ fn raw_write(fd: i32, mut buf: &[u8]) -> bool {
 impl Term {
     pub fn open() -> io::Result<Term> {
         let path = b"/dev/tty\0";
+        // SAFETY: `path` is a NUL-terminated literal.
         let fd = unsafe { libc::open(path.as_ptr() as *const libc::c_char, libc::O_RDWR | libc::O_CLOEXEC | libc::O_NOCTTY) };
         if fd < 0 {
             return Err(io::Error::last_os_error());
@@ -95,7 +101,9 @@ impl Term {
     }
 
     pub fn enter(&mut self) -> io::Result<()> {
+        // SAFETY: termios is plain-old-data, all-zero is a valid value.
         let mut t: libc::termios = unsafe { std::mem::zeroed() };
+        // SAFETY: `t` is a live local; the fd is the terminal we opened.
         if unsafe { libc::tcgetattr(self.fd, &mut t) } != 0 {
             return Err(io::Error::last_os_error());
         }
@@ -122,6 +130,7 @@ impl Term {
         t.c_cflag |= libc::CS8;
         t.c_cc[libc::VMIN] = 0;
         t.c_cc[libc::VTIME] = 0;
+        // SAFETY: `t` is a valid termios copied from the terminal; the fd is ours.
         unsafe {
             libc::tcsetattr(self.fd, libc::TCSANOW, &t);
         }
@@ -136,7 +145,9 @@ impl Term {
     }
 
     pub fn size(&self) -> (usize, usize) {
+        // SAFETY: winsize is plain-old-data, all-zero is a valid value.
         let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
+        // SAFETY: TIOCGWINSZ writes a winsize into the live local `ws`.
         if unsafe { libc::ioctl(self.fd, libc::TIOCGWINSZ, &mut ws) } == 0 && ws.ws_col > 0 && ws.ws_row > 0 {
             (ws.ws_col as usize, ws.ws_row as usize)
         } else {
@@ -151,6 +162,7 @@ impl Term {
     /// Wait up to `timeout_ms` for input. Focus reports are not "keys".
     pub fn poll_input(&self, timeout_ms: i32) -> Input {
         let mut p = libc::pollfd { fd: self.fd, events: libc::POLLIN, revents: 0 };
+        // SAFETY: `p` is a valid pollfd array of length 1 for the duration of the call.
         let r = unsafe { libc::poll(&mut p, 1, timeout_ms.max(0)) };
         if r <= 0 {
             return Input::None;
@@ -160,6 +172,7 @@ impl Term {
             return Input::None;
         }
         let mut buf = [0u8; 512];
+        // SAFETY: the pointer/length pair describes the live local buffer.
         let n = unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
         if n <= 0 {
             return Input::None;
@@ -187,6 +200,7 @@ impl Term {
         }
         self.active = false;
         // Swallow the rest of a multi-byte key (arrows, F-keys) so nothing leaks to the shell.
+        // SAFETY: usleep and tcflush on our own fd have no memory preconditions.
         unsafe {
             libc::usleep(15_000);
             libc::tcflush(self.fd, libc::TCIFLUSH);
@@ -198,6 +212,7 @@ impl Term {
 impl Drop for Term {
     fn drop(&mut self) {
         self.leave();
+        // SAFETY: the fd was opened by `Term::open` and is closed exactly once, here.
         unsafe {
             libc::close(self.fd);
         }

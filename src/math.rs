@@ -17,11 +17,7 @@ impl Rgb {
         Rgb { r, g, b }
     }
     pub const fn hex(h: u32) -> Self {
-        Rgb {
-            r: ((h >> 16) & 255) as f32 / 255.0,
-            g: ((h >> 8) & 255) as f32 / 255.0,
-            b: (h & 255) as f32 / 255.0,
-        }
+        Rgb { r: ((h >> 16) & 255) as f32 / 255.0, g: ((h >> 8) & 255) as f32 / 255.0, b: (h & 255) as f32 / 255.0 }
     }
     #[inline]
     pub fn lerp(self, o: Rgb, t: f32) -> Rgb {
@@ -76,12 +72,15 @@ pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
 }
 
 #[inline]
+/// Integer hash -> 0..1. Wrapping arithmetic on purpose: this is a mixer, overflow is the point.
 pub fn hash2(x: i32, y: i32, seed: u32) -> f32 {
-    let mut h = (x as u32).wrapping_mul(0x8da6_b343) ^ (y as u32).wrapping_mul(0xd816_3841) ^ seed.wrapping_mul(0xcb1a_b31f);
-    h ^= h >> 13;
-    h = h.wrapping_mul(0x5bd1_e995);
+    let mut h = (x as u32).wrapping_mul(0x9E37_79B1) ^ (y as u32).wrapping_mul(0x85EB_CA77) ^ seed.wrapping_mul(0xC2B2_AE3D);
     h ^= h >> 15;
-    (h & 0x00ff_ffff) as f32 / 16_777_216.0
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    h = h.wrapping_mul(0x297A_2D39);
+    h ^= h >> 15;
+    (h & 0x00FF_FFFF) as f32 / 16_777_216.0
 }
 
 /// Smooth 2-D value noise in 0..1.
@@ -92,9 +91,10 @@ pub fn vnoise(x: f32, y: f32, seed: u32) -> f32 {
     let u = xf * xf * (3.0 - 2.0 * xf);
     let v = yf * yf * (3.0 - 2.0 * yf);
     let a = hash2(xi, yi, seed);
-    let b = hash2(xi + 1, yi, seed);
-    let c = hash2(xi, yi + 1, seed);
-    let d = hash2(xi + 1, yi + 1, seed);
+    let (xj, yj) = (xi.wrapping_add(1), yi.wrapping_add(1));
+    let b = hash2(xj, yi, seed);
+    let c = hash2(xi, yj, seed);
+    let d = hash2(xj, yj, seed);
     lerp(lerp(a, b, u), lerp(c, d, u), v)
 }
 

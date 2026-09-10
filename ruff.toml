@@ -1,0 +1,7 @@
+line-length = 160
+target-version = "py310"
+
+[lint]
+select = ["E", "F", "W", "B", "S"]
+# S603/S607: subprocess with a fixed argv (nvidia-smi is never involved in the shipped code; eval only)
+ignore = ["S101"]

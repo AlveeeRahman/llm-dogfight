@@ -2,7 +2,7 @@
 //!
 //! 1. `px`     — RGB pixels at (cols x rows*2). Each cell shows two pixels via '▀'.
 //! 2. `dots`   — braille sub-pixels at (cols*2 x rows*4), one colour per cell. Used for
-//!               fine detail (stars, sparks) that would be mush at half-block resolution.
+//!    fine detail (stars, sparks) that would be mush at half-block resolution.
 //! 3. `glyphs` — whole-cell characters (text, HUD). Highest priority.
 //!
 //! All primitives take float coordinates and anti-alias, so motion is smooth even on
@@ -54,7 +54,11 @@ impl Canvas {
     }
     #[inline]
     pub fn get(&self, x: i32, y: i32) -> Rgb {
-        if self.inside(x, y) { self.px[y as usize * self.w + x as usize] } else { Rgb::BLACK }
+        if self.inside(x, y) {
+            self.px[y as usize * self.w + x as usize]
+        } else {
+            Rgb::BLACK
+        }
     }
     #[inline]
     pub fn set(&mut self, x: i32, y: i32, c: Rgb) {
@@ -125,6 +129,7 @@ impl Canvas {
     }
 
     /// Anti-aliased filled ellipse, rotated by `rot` radians.
+    #[allow(clippy::too_many_arguments)]
     pub fn ellipse(&mut self, cx: f32, cy: f32, rx: f32, ry: f32, rot: f32, c: Rgb, a: f32) {
         let (rx, ry) = (rx.max(0.3), ry.max(0.3));
         let ext = rx.max(ry) + 1.0;
@@ -146,10 +151,7 @@ impl Canvas {
         }
     }
 
-    /// Anti-aliased line (sub-pixel stepping + splat).
-
-    /// Solid stroke of `width` pixels (parallel AA lines, no gaps).
-
+    /// Additive anti-aliased line (bolts, trails).
     pub fn line_add(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, c: Rgb) {
         let len = ((x1 - x0).powi(2) + (y1 - y0).powi(2)).sqrt();
         let n = (len * 1.2).ceil().max(1.0) as i32;

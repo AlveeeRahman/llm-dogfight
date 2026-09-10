@@ -34,6 +34,10 @@ impl Encoder {
         Encoder { prev: vec![], cols: 0, rows: 0, tol, truecolor, full: true, sfg: None, sbg: None }
     }
 
+    /// Colour-drift threshold per channel (0..32); raised by the lag guard on slow terminals.
+    pub fn set_tolerance(&mut self, tol: i32) {
+        self.tol = tol.clamp(0, 32);
+    }
     pub fn invalidate(&mut self) {
         self.full = true;
     }
@@ -199,5 +203,9 @@ pub fn to_256(c: [u8; 3]) -> u8 {
     let gi = ((avg - 8).max(0) / 10).min(23);
     let gv = 8 + gi * 10;
     let d_grey: i32 = (0..3).map(|k| (gv - c[k] as i32).pow(2)).sum();
-    if d_grey < d_cube { (232 + gi) as u8 } else { (16 + 36 * r + 6 * g + b) as u8 }
+    if d_grey < d_cube {
+        (232 + gi) as u8
+    } else {
+        (16 + 36 * r + 6 * g + b) as u8
+    }
 }

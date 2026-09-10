@@ -1,8 +1,10 @@
+#![warn(clippy::undocumented_unsafe_blocks)]
 mod app;
 mod arena;
 mod canvas;
 mod config;
 mod encode;
+mod evolve;
 mod idle;
 mod math;
 mod rng;
@@ -13,22 +15,28 @@ mod term;
 use config::Config;
 use std::time::Instant;
 
-const HELP: &str = "reverie — a tiny terminal screensaver (UFO dogfights over a sleeping city)
+const HELP: &str = "reverie — a UFO dogfight in your terminal, flown by two local language models
 
 USAGE
-  reverie                         preview now (any key exits)
-  reverie run ufo                 the baseline: built-in pilots, no GPU
-  reverie run cuda ufo-battle     two small language models command the teams (CUDA, ~5 GB)
-  reverie run mlx ufo-battle      same on Apple silicon (mlx-lm)
-      options: [--evolve on|off] [--fps N] [--seed N] [--duration SECS]
-  reverie arena [cuda|mlx]        same as `run ... ufo-battle`
+  reverie                         start the battle (auto-detects CUDA, or MLX on Apple silicon); any key exits
+  reverie cuda | reverie mlx      same, with the backend chosen by hand
+  reverie evolve                  ... and evolve each team's bounded doctrine with a genetic algorithm
+  reverie ufo                     the built-in pilots, no models, no GPU
+      options: [--zorb MODEL] [--krell MODEL] [--lessons on|off] [--fps N] [--seed N] [--duration SECS] [--perf FILE]
+  reverie models                  the model catalogue (aliases, sizes, what fits 8 GB); --zorb/--krell take an alias or any HF id
+  reverie run [cuda|mlx] [ufo|ufo-battle] [evolve]   the long form of the above
   reverie arena check [--load]    verify python/torch/CUDA (or mlx) and the models; --load times them
-  reverie arena pull              download the two models
-  reverie arena lessons | forget  show / erase what the commanders learned from their losses
-  reverie list                    list scenes
+  reverie arena pull              download the two models (~5 GB) ahead of the first battle
+  reverie arena lessons           what the commanders learned, and their evolved doctrines
+  reverie reset model | score | all
+                                  forget lessons + doctrines / games won and lost / both
   reverie install [--shell bash|zsh|fish]
-                                  start automatically when your prompt sits idle
-  reverie uninstall               remove shell integration, stop watchers
+                                  optional: also play whenever your prompt sits idle (screensaver mode)
+  reverie uninstall               remove that shell hook, stop watchers (keeps config, memories, models)
+  reverie remove [--yes] [--models]
+                                  uninstall everything: hook, watchers, config, memories, scores,
+                                  logs, the sidecar copy and this binary; --models also deletes
+                                  the two downloaded models from the Hugging Face cache
   reverie pause [MINUTES] | resume
   reverie status                  show config, integration and watchers
   reverie config                  print the default config (copy to ~/.config/reverie/config.toml)
@@ -52,7 +60,9 @@ impl Args {
             if let Some(k) = a.strip_prefix("--") {
                 if let Some((k, v)) = k.split_once('=') {
                     flags.push((k.to_string(), Some(v.to_string())));
-                } else if it.peek().map(|n| !n.starts_with("--")).unwrap_or(false) && !matches!(k, "daemon" | "help" | "version" | "json" | "load") {
+                } else if it.peek().map(|n| !n.starts_with("--")).unwrap_or(false)
+                    && !matches!(k, "daemon" | "help" | "version" | "json" | "load" | "yes" | "models")
+                {
                     flags.push((k.to_string(), it.next()));
                 } else {
                     flags.push((k.to_string(), None));
@@ -192,16 +202,20 @@ fn arena_cmd(cfg: &Config, a: &Args) -> i32 {
             if !any {
                 println!("no lessons yet ({}); they appear after the first losses in `reverie arena`", dir.display());
             }
+            for team in ["ZORB", "KRELL"] {
+                let p = evolve::doctrine_path(team);
+                if let Ok(text) = std::fs::read_to_string(&p) {
+                    println!("{team} doctrine population ({}):", p.display());
+                    for l in text.lines().filter(|l| !l.starts_with('#')) {
+                        println!("  {l}");
+                    }
+                }
+            }
             return 0;
         }
-        Some("forget") => {
-            let dir = arena::lessons_dir();
-            let n = std::fs::read_dir(&dir).map(|rd| rd.flatten().filter(|e| std::fs::remove_file(e.path()).is_ok()).count()).unwrap_or(0);
-            println!("forgot {n} lesson file(s) in {}", dir.display());
-            return 0;
-        }
+        Some("forget") => return reset_files(true, false),
         Some(other) => {
-            eprintln!("reverie arena: unknown subcommand '{other}' (check | pull | lessons | forget)");
+            eprintln!("reverie arena: unknown subcommand '{other}' (check | pull | lessons)");
             return 2;
         }
         None => unreachable!(),
@@ -213,7 +227,15 @@ fn arena_cmd(cfg: &Config, a: &Args) -> i32 {
             return 1;
         }
     };
-    println!("models: {} vs {}  backend {}  budget {} GB  evolve {}  ({})", cfg.lm_model_a, cfg.lm_model_b, cfg.lm_backend, cfg.lm_vram_gb, if cfg.lm_evolve { "on" } else { "off" }, config::config_path().display());
+    println!(
+        "models: {} vs {}  backend {}  budget {} GB  evolve {}  ({})",
+        cfg.lm_model_a,
+        cfg.lm_model_b,
+        cfg.lm_backend,
+        cfg.lm_vram_gb,
+        if cfg.lm_evolve { "on" } else { "off" },
+        config::config_path().display()
+    );
     match cmd.status() {
         Ok(st) => st.code().unwrap_or(1),
         Err(e) => {
@@ -223,8 +245,184 @@ fn arena_cmd(cfg: &Config, a: &Args) -> i32 {
     }
 }
 
+/// Popular small instruct models that fit the 8 GB target (bf16 sizes from the Hugging Face API,
+/// 2026-09-10). `reverie models` prints it; `--zorb` / `--krell` accept the alias or any HF id.
+const MODELS: &[(&str, &str, f32, &str)] = &[
+    ("qwen3-0.6b", "Qwen/Qwen3-0.6B", 1.5, "default for ZORB; fast, decisive"),
+    ("qwen3-1.7b", "Qwen/Qwen3-1.7B", 4.1, "stronger Qwen; pair with a small partner"),
+    ("qwen2.5-0.5b", "Qwen/Qwen2.5-0.5B-Instruct", 1.0, "tiny and quick"),
+    ("qwen2.5-1.5b", "Qwen/Qwen2.5-1.5B-Instruct", 3.1, ""),
+    ("smollm2-360m", "HuggingFaceTB/SmolLM2-360M-Instruct", 0.7, "smallest that still follows the format"),
+    ("smollm2-1.7b", "HuggingFaceTB/SmolLM2-1.7B-Instruct", 3.4, "default for KRELL; good instruction following"),
+    ("smollm3-3b", "HuggingFaceTB/SmolLM3-3B", 6.2, "needs lm_quant = \"8bit\" next to a partner"),
+    ("llama3.2-1b", "meta-llama/Llama-3.2-1B-Instruct", 2.5, "gated: accept the licence on HF and set HF_TOKEN"),
+    ("llama3.2-3b", "meta-llama/Llama-3.2-3B-Instruct", 6.4, "gated; needs lm_quant = \"8bit\""),
+    ("gemma3-1b", "google/gemma-3-1b-it", 2.0, "gated: accept the licence on HF and set HF_TOKEN"),
+    ("tinyllama", "TinyLlama/TinyLlama-1.1B-Chat-v1.0", 2.2, "old but tiny; weak at the format"),
+    ("granite3.3-2b", "ibm-granite/granite-3.3-2b-instruct", 5.1, "needs lm_quant = \"8bit\" next to a partner"),
+    ("deepseek-r1-1.5b", "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B", 3.6, "thinking model: slower, chatty"),
+    ("phi4-mini", "microsoft/Phi-4-mini-instruct", 7.7, "needs lm_quant = \"8bit\""),
+];
+
+fn resolve_model(name: &str) -> String {
+    let key = name.to_lowercase();
+    MODELS.iter().find(|m| m.0 == key).map(|m| m.1.to_string()).unwrap_or_else(|| name.to_string())
+}
+
+fn models_cmd(cfg: &Config) -> i32 {
+    println!("alias              hugging face id                               bf16  notes");
+    for (alias, id, gb, note) in MODELS {
+        let pair = if id == &cfg.lm_model_a { cfg_size(&cfg.lm_model_b) } else { cfg_size(&cfg.lm_model_a) };
+        let fits = if gb + pair + 0.8 <= 8.0 { "fits 8 GB with your other model" } else { "too big for 8 GB in bf16 next to your other model" };
+        let mark = if id == &cfg.lm_model_a || id == &cfg.lm_model_b { "*" } else { " " };
+        println!("{mark}{:<17} {:<44} {:>4.1}GB  {}{}{}", alias, id, gb, note, if note.is_empty() { "" } else { "; " }, fits);
+    }
+    println!("\n* = current pair ({} vs {}).", cfg.lm_model_a, cfg.lm_model_b);
+    println!("swap: reverie --zorb qwen3-1.7b --krell llama3.2-1b        (alias or any Hugging Face id, `id@revision` to pin)");
+    println!("keep: lm_model_a / lm_model_b in {}", config::config_path().display());
+    println!("then: reverie arena pull   (download)   reverie arena check --load   (measure peak memory)");
+    println!("mlx: the same ids work through mlx-lm; mlx-community/<name>-4bit repos are smaller and faster.");
+    0
+}
+
+fn cfg_size(id: &str) -> f32 {
+    MODELS.iter().find(|m| m.1 == id).map(|m| m.2).unwrap_or(3.0)
+}
+
+/// `reverie remove [--yes] [--models]`: the whole footprint, then the binary itself.
+fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+    let exe = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
+    let cargo_bin = home.join(".cargo/bin/reverie");
+    let mut dirs: Vec<std::path::PathBuf> = vec![config::state_dir(), config::data_dir(), config::runtime_dir()];
+    if let Some(c) = config::config_path().parent() {
+        dirs.insert(0, c.to_path_buf());
+    }
+    let hf_hub = std::env::var_os("HF_HOME").map(|h| std::path::PathBuf::from(h).join("hub")).unwrap_or_else(|| home.join(".cache/huggingface/hub"));
+    let models: Vec<std::path::PathBuf> =
+        [&cfg.lm_model_a, &cfg.lm_model_b].iter().map(|m| hf_hub.join(format!("models--{}", m.replace('/', "--")))).filter(|p| p.exists()).collect();
+    let mut bins: Vec<std::path::PathBuf> = vec![];
+    if cargo_bin.exists() {
+        bins.push(cargo_bin.clone());
+    }
+    if let Some(e) = &exe {
+        if !bins.iter().any(|b| b.canonicalize().ok().as_ref() == Some(e)) {
+            bins.push(e.clone());
+        }
+    }
+    println!("reverie remove will delete:");
+    let hooks = shell::installed();
+    println!("  shell hook: {}", if hooks.is_empty() { "none".to_string() } else { hooks.join(", ") });
+    for d in &dirs {
+        if d.exists() {
+            println!("  {}", d.display());
+        }
+    }
+    for b in &bins {
+        println!("  {} (the program itself)", b.display());
+    }
+    if a.has("models") {
+        for m in &models {
+            println!("  {} ({} MB)", m.display(), dir_size_mb(m));
+        }
+    } else if !models.is_empty() {
+        println!("  (kept: {} model dir(s) in {}; add --models to delete them)", models.len(), hf_hub.display());
+    }
+    if !a.has("yes") {
+        print!("Remove all of this? [y/N] ");
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        let mut line = String::new();
+        let _ = std::io::stdin().read_line(&mut line);
+        if !matches!(line.trim().to_lowercase().as_str(), "y" | "yes") {
+            println!("nothing removed");
+            return 1;
+        }
+    }
+    println!("{}", shell::uninstall());
+    for d in &dirs {
+        if d.exists() {
+            match std::fs::remove_dir_all(d) {
+                Ok(()) => println!("removed {}", d.display()),
+                Err(e) => eprintln!("could not remove {}: {e}", d.display()),
+            }
+        }
+    }
+    if a.has("models") {
+        for m in &models {
+            match std::fs::remove_dir_all(m) {
+                Ok(()) => println!("removed {}", m.display()),
+                Err(e) => eprintln!("could not remove {}: {e}", m.display()),
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(home.join(".cargo/registry/cache/reverie")); // never exists; harmless
+    for b in &bins {
+        match std::fs::remove_file(b) {
+            Ok(()) => println!("removed {}", b.display()),
+            Err(e) => eprintln!("could not remove {}: {e}", b.display()),
+        }
+    }
+    println!(
+        "reverie is gone. Left behind on purpose: the rc-file backups `~/.bashrc.reverie-backup-*` (delete when happy){}",
+        if a.has("models") { "." } else { " and the Hugging Face model cache." }
+    );
+    println!("open a new terminal so running shells drop the old trap.");
+    0
+}
+
+fn dir_size_mb(p: &std::path::Path) -> u64 {
+    fn walk(p: &std::path::Path) -> u64 {
+        std::fs::read_dir(p)
+            .map(|rd| rd.flatten().map(|e| e.metadata().map(|m| if m.is_dir() { walk(&e.path()) } else { m.len() }).unwrap_or(0)).sum())
+            .unwrap_or(0)
+    }
+    walk(p) / (1024 * 1024)
+}
+
+/// `reverie reset model|score|all`
+fn reset_cmd(a: &Args) -> i32 {
+    match a.pos.get(1).map(String::as_str) {
+        Some("model") => reset_files(true, false),
+        Some("score") => reset_files(false, true),
+        Some("all") => reset_files(true, true),
+        _ => {
+            eprintln!("usage: reverie reset model|score|all\n  model  forget the commanders' lessons and evolved doctrines\n  score  reset games won/lost (and lifetime kills/cows) between the models");
+            2
+        }
+    }
+}
+
+fn reset_files(model: bool, score: bool) -> i32 {
+    let mut n = 0;
+    if model {
+        if let Ok(rd) = std::fs::read_dir(arena::lessons_dir()) {
+            n += rd.flatten().filter(|e| std::fs::remove_file(e.path()).is_ok()).count();
+        }
+        for team in ["ZORB", "KRELL"] {
+            if std::fs::remove_file(evolve::doctrine_path(team)).is_ok() {
+                n += 1;
+            }
+        }
+        println!("model memory reset: {n} file(s) removed (lessons + doctrines)");
+    }
+    if score {
+        let mut m = 0;
+        if let Ok(rd) = std::fs::read_dir(config::state_dir()) {
+            for e in rd.flatten() {
+                if e.file_name().to_string_lossy().starts_with("score-") && std::fs::remove_file(e.path()).is_ok() {
+                    m += 1;
+                }
+            }
+        }
+        println!("score reset: {m} scoreboard file(s) removed");
+    }
+    0
+}
+
 fn main() {
     // `reverie status | head` must not panic on a closed pipe
+    // SAFETY: restoring the default disposition of SIGPIPE has no preconditions.
     unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
     let a = Args::parse();
     if a.has("version") {
@@ -235,13 +433,24 @@ fn main() {
         print!("{HELP}");
         return;
     }
-    let cfg = Config::load();
-    let cmd = a.pos.first().map(|s| s.as_str()).unwrap_or("run");
-    let evolve = a.get("evolve").map(|v| !matches!(v.to_lowercase().as_str(), "off" | "false" | "0" | "no"));
-    // `reverie run [cuda|mlx] [ufo|ufo-battle]`: positional words pick the backend and the scene
+    let mut cfg = Config::load();
+    // `--zorb MODEL` / `--krell MODEL`: pick the commanders for this run (alias or Hugging Face id)
+    if let Some(m) = a.get("zorb") {
+        cfg.lm_model_a = resolve_model(m);
+    }
+    if let Some(m) = a.get("krell") {
+        cfg.lm_model_b = resolve_model(m);
+    }
+    let cfg = cfg;
+    // no arguments: the battle itself (falls back to the built-in pilots if the sidecar can't start)
+    let cmd = a.pos.first().map(|s| s.as_str()).unwrap_or("ufo-battle");
+    let on = |v: &str| !matches!(v.to_lowercase().as_str(), "off" | "false" | "0" | "no");
+    let evolve = a.get("lessons").or_else(|| a.get("evolve")).map(on);
+    // `reverie run [cuda|mlx] [ufo|ufo-battle] [evolve]`: positional words pick backend, scene, GA
     let mut scene = a.get("scene").map(String::from);
     let mut pilots = a.get("pilots").map(String::from);
     let mut backend = a.get("backend").map(String::from);
+    let mut genetic = a.get("genetic").map(on);
     for w in a.pos.iter().skip(1) {
         match w.as_str() {
             "cuda" | "mlx" => backend = Some(w.clone()),
@@ -249,23 +458,59 @@ fn main() {
                 scene = Some("ufo".into());
                 pilots = Some("lm".into());
             }
+            "evolve" | "genetic" => genetic = Some(true),
+            "check" | "pull" | "lessons" | "forget" | "model" | "score" | "all" | "remove" | "models" => {}
             other => scene = Some(other.to_string()),
         }
     }
     let run_opts = |scene: Option<String>, pilots: Option<String>, backend: Option<String>| app::RunOpts {
+        perf: a.get("perf").map(String::from),
         scene,
         pilots,
         backend,
         evolve,
+        genetic,
         fps: a.num("fps"),
         seed: a.num("seed"),
         idle_trigger: a.num("idle-trigger"),
         duration: a.num("duration"),
     };
     let code = match cmd {
-        "run" | "preview" | "demo" => app::run(&cfg, run_opts(scene, pilots, backend)),
-        "arena" if a.pos.len() == 1 || matches!(a.pos[1].as_str(), "cuda" | "mlx") => app::run(&cfg, run_opts(Some("ufo".into()), Some("lm".into()), backend)),
+        // `reverie` / `reverie cuda` / `reverie mlx` / `reverie evolve`: the battle. `reverie ufo`: the baseline.
+        "run" | "preview" | "demo" | "play" => app::run(&cfg, run_opts(scene, pilots, backend)),
+        "cuda" | "mlx" | "evolve" | "ufo-battle" | "battle" => {
+            let mut backend = backend;
+            let mut genetic = genetic;
+            for w in a.pos.iter() {
+                match w.as_str() {
+                    "cuda" | "mlx" => backend = Some(w.clone()),
+                    "evolve" => genetic = Some(true),
+                    _ => {}
+                }
+            }
+            app::run(
+                &cfg,
+                app::RunOpts {
+                    perf: a.get("perf").map(String::from),
+                    scene: Some("ufo".into()),
+                    pilots: Some("lm".into()),
+                    backend,
+                    evolve,
+                    genetic,
+                    fps: a.num("fps"),
+                    seed: a.num("seed"),
+                    idle_trigger: None,
+                    duration: a.num("duration"),
+                },
+            )
+        }
+        "ufo" => app::run(&cfg, run_opts(Some("ufo".into()), Some("builtin".into()), None)),
+        "arena" if a.pos.len() == 1 || matches!(a.pos[1].as_str(), "cuda" | "mlx" | "evolve") => {
+            app::run(&cfg, run_opts(Some("ufo".into()), Some("lm".into()), backend))
+        }
         "arena" => arena_cmd(&cfg, &a),
+        "reset" => reset_cmd(&a),
+        "models" => models_cmd(&cfg),
         "watch" => match a.num::<i32>("pid") {
             Some(pid) => idle::watch(pid, a.get("tty"), a.num("idle"), a.has("daemon")),
             None => {
@@ -299,8 +544,15 @@ fn main() {
         }
         "uninstall" => {
             println!("{}", shell::uninstall());
+            println!(
+                "kept: {}, {}, {} and the models in the Hugging Face cache.\nuse `reverie remove` to delete everything.",
+                config::config_path().parent().map(|p| p.display().to_string()).unwrap_or_default(),
+                config::state_dir().display(),
+                config::data_dir().display()
+            );
             0
         }
+        "remove" => remove_cmd(&cfg, &a),
         "pause" => {
             let m: Option<u64> = a.pos.get(1).and_then(|v| v.parse().ok());
             idle::set_pause(m);
@@ -331,7 +583,15 @@ fn main() {
             println!("idle:        {} s, fps {}, scenes {:?}", cfg.idle_seconds, cfg.fps, cfg.scenes);
             println!("colour:      {}", if cfg.truecolor() { "truecolor" } else { "256" });
             println!("pilots:      {}", cfg.ufo_pilots);
-            println!("lm:          {} vs {} ({} backend, {} GB, {}, evolve {})", cfg.lm_model_a, cfg.lm_model_b, cfg.lm_backend, cfg.lm_vram_gb, cfg.lm_python, if cfg.lm_evolve { "on" } else { "off" });
+            println!(
+                "lm:          {} vs {} ({} backend, {} GB, {}, evolve {})",
+                cfg.lm_model_a,
+                cfg.lm_model_b,
+                cfg.lm_backend,
+                cfg.lm_vram_gb,
+                cfg.lm_python,
+                if cfg.lm_evolve { "on" } else { "off" }
+            );
             let inst = shell::installed();
             println!("installed:   {}", if inst.is_empty() { "no (run `reverie install`)".to_string() } else { inst.join(", ") });
             println!("paused:      {}", idle::paused());

@@ -23,6 +23,12 @@ pub struct Config {
     pub lm_think_seconds: f32,
     /// commanders write a lesson after each loss and keep it in their prompts (and on disk)
     pub lm_evolve: bool,
+    /// genetic doctrine evolution (`reverie run ufo-battle evolve`)
+    pub lm_genetic: bool,
+    /// reinforcements per team per game; a team that cannot field a saucer loses the game
+    pub lm_regens: u32,
+    /// saucers per team on screen (the previous game's loser starts with one extra)
+    pub lm_max_alive: u32,
 }
 
 pub const DEFAULT_TOML: &str = r#"# reverie — ~/.config/reverie/config.toml
@@ -34,7 +40,7 @@ idle_seconds = 300
 fps = 30
 unfocused_fps = 12
 
-# Scenes to rotate through: "ufo" (built-in pilots) and/or "ufo-battle" (language models).
+# Idle-screensaver mode only (`reverie install`): "ufo" (built-in pilots, no GPU) and/or "ufo-battle".
 scenes = ["ufo"]
 rotate_minutes = 4
 
@@ -55,7 +61,7 @@ tolerance = 5
 ufo_pilots = "builtin"
 
 # Language-model commanders. Defaults fit an 8 GB CUDA card (about 5 GB together).
-lm_backend = "cuda"                                 # cuda | mlx (Apple silicon) | auto; or `reverie run mlx ufo-battle`
+lm_backend = "auto"                                 # auto = cuda, or mlx on Apple silicon; or `reverie mlx` / `reverie cuda`
 lm_model_a = "Qwen/Qwen3-0.6B"                      # team ZORB
 lm_model_b = "HuggingFaceTB/SmolLM2-1.7B-Instruct"  # team KRELL
 lm_vram_gb = 6                                      # CUDA memory cap for both models
@@ -63,7 +69,11 @@ lm_quant = "none"                                   # cuda: none | 8bit | 4bit (
 lm_python = "python3"                               # interpreter that has the ML packages
 lm_think_seconds = 1.0                              # minimum pause between a team's orders
 lm_evolve = true                                    # learn from every destroyed saucer (lessons persist in
-                                                    # ~/.local/state/reverie/lessons; `reverie arena forget` clears)
+                                                    # ~/.local/state/reverie/lessons; `reverie reset model` clears)
+lm_genetic = false                                  # evolve each team's bounded doctrine with a genetic algorithm
+                                                    # (same as the `evolve` word: `reverie run ufo-battle evolve`)
+lm_max_alive = 4                                    # saucers per team on screen (a game's loser restarts with +1)
+lm_regens = 20                                      # reinforcements per team per game; then it is a fight to the death
 "#;
 
 impl Default for Config {
@@ -78,7 +88,7 @@ impl Default for Config {
             color: "auto".into(),
             tolerance: 5,
             ufo_pilots: "builtin".into(),
-            lm_backend: "cuda".into(),
+            lm_backend: "auto".into(),
             lm_model_a: "Qwen/Qwen3-0.6B".into(),
             lm_model_b: "HuggingFaceTB/SmolLM2-1.7B-Instruct".into(),
             lm_vram_gb: 6.0,
@@ -86,6 +96,9 @@ impl Default for Config {
             lm_python: "python3".into(),
             lm_think_seconds: 1.0,
             lm_evolve: true,
+            lm_genetic: false,
+            lm_regens: 20,
+            lm_max_alive: 4,
         }
     }
 }
@@ -120,7 +133,10 @@ impl Config {
                 "lm_model_b" => self.lm_model_b = unquote(v),
                 "lm_quant" => self.lm_quant = unquote(v),
                 "lm_python" => self.lm_python = unquote(v),
-                "lm_evolve" => self.lm_evolve = !matches!(unquote(v).to_lowercase().as_str(), "false" | "0" | "no" | "off"),
+                "lm_evolve" | "lm_lessons" => self.lm_evolve = !matches!(unquote(v).to_lowercase().as_str(), "false" | "0" | "no" | "off"),
+                "lm_genetic" => self.lm_genetic = !matches!(unquote(v).to_lowercase().as_str(), "false" | "0" | "no" | "off"),
+                "lm_regens" => set_num(&mut self.lm_regens, v),
+                "lm_max_alive" => set_num(&mut self.lm_max_alive, v),
                 "scenes" => {
                     let list: Vec<String> = v.trim_start_matches('[').trim_end_matches(']').split(',').map(unquote).filter(|s| !s.is_empty()).collect();
                     if !list.is_empty() {
@@ -135,6 +151,8 @@ impl Config {
         self.idle_seconds = self.idle_seconds.max(5);
         self.tolerance = self.tolerance.clamp(0, 32);
         self.lm_vram_gb = self.lm_vram_gb.clamp(1.0, 512.0);
+        self.lm_max_alive = self.lm_max_alive.clamp(1, 4);
+        self.lm_regens = self.lm_regens.min(500);
         if !matches!(self.ufo_pilots.as_str(), "builtin" | "lm") {
             self.ufo_pilots = "builtin".into();
         }
@@ -153,7 +171,10 @@ impl Config {
             _ => {
                 let ct = std::env::var("COLORTERM").unwrap_or_default();
                 // VTE-based terminals (GNOME Terminal, Ptyxis) set VTE_VERSION and do truecolor.
-                ct.contains("truecolor") || ct.contains("24bit") || std::env::var("VTE_VERSION").is_ok() || std::env::var("TERM").map(|t| t.contains("direct") || t.contains("kitty") || t.contains("ghostty")).unwrap_or(false)
+                ct.contains("truecolor")
+                    || ct.contains("24bit")
+                    || std::env::var("VTE_VERSION").is_ok()
+                    || std::env::var("TERM").map(|t| t.contains("direct") || t.contains("kitty") || t.contains("ghostty")).unwrap_or(false)
             }
         }
     }
@@ -204,12 +225,13 @@ pub fn runtime_dir() -> PathBuf {
         Some(p) if !p.is_empty() => PathBuf::from(p),
         _ => PathBuf::from("/tmp"),
     };
+    // SAFETY: getuid never fails and has no preconditions.
     let uid = unsafe { libc::getuid() };
     let d = base.join(format!("reverie-{uid}"));
     let _ = std::fs::create_dir_all(&d);
-    unsafe {
-        let c = std::ffi::CString::new(d.to_string_lossy().as_bytes()).unwrap();
-        libc::chmod(c.as_ptr(), 0o700);
+    if let Ok(c) = std::ffi::CString::new(d.to_string_lossy().as_bytes()) {
+        // SAFETY: `c` is a valid NUL-terminated path that outlives the call.
+        unsafe { libc::chmod(c.as_ptr(), 0o700) };
     }
     d
 }
