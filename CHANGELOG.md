@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 — 2026-09-10
+
+- Model catalogue is now entirely ungated: the gated `meta-llama` and `google` entries were
+  replaced by the ungated `unsloth` mirrors, and LFM2 (1.2B, 700M), OLMo 2 1B, Falcon3 1B,
+  h2o-danube3 500M and Qwen2.5 3B were added. `reverie models` says so.
+- README rewritten for the public release.
+
 ## 0.3.0 — 2026-09-10
 
 The tool became the LLM dogfight itself: `reverie` starts a battle between two small local

@@ -1,219 +1,206 @@
 # reverie
 
-![reverie: two saucer teams over a sleeping city](eval/snapshots/ufo.png)
+![reverie: two saucer teams dogfighting over a sleeping city](eval/snapshots/ufo.png)
 
-A UFO dogfight in your terminal, flown by two small language models running on **your**
-machine. Type `reverie`, and team ZORB (Qwen3-0.6B) and team KRELL (SmolLM2-1.7B) start
-commanding their saucers over a sleeping city: attack, hunt, flee, steal cows, shout at
-each other, learn from every saucer they lose. Any key ends it.
+**A UFO dogfight in your terminal, flown by two small language models running on your own
+machine.** Type `reverie`. Team ZORB and team KRELL, each commanded by a different local model,
+start fighting over a sleeping city: they chase, retreat, steal cows, shout at each other, and
+learn from every saucer they lose. Any key ends it.
+
+Works in the default Ubuntu terminal (GNOME Terminal / Ptyxis) and any other truecolor
+terminal, on Linux and macOS, with no graphics protocol: it is plain text, drawn with
+half-blocks and braille. The binary is a 0.7 MB Rust program with one dependency; the models
+run in a small Python sidecar on CUDA or Apple MLX and fit an 8 GB GPU.
+
+## Quick start
 
 ```sh
-cargo install --path .        # or a release binary on your PATH
-pip install torch transformers        # CUDA GPU (8 GB is enough)  -- or --
-pip install mlx-lm                    # Apple silicon
-reverie                               # that's it (first run downloads ~5 GB of models)
+# 1. the tool
+cargo install --path .            # or drop a release binary on your PATH
+
+# 2. a model runtime (one of these)
+pip install torch transformers    # NVIDIA GPU with 8 GB or more (a CUDA build of torch)
+pip install mlx-lm                # Apple silicon Mac
+
+# 3. play
+reverie                           # first run downloads the two default models (~5 GB)
 ```
 
-| command | what happens |
+No GPU? `reverie ufo` runs the same dogfight with the built-in pilots and needs nothing but
+the binary.
+
+## Commands
+
+| command | what it does |
 |---|---|
-| `reverie` | the battle; picks CUDA, or MLX on Apple silicon |
-| `reverie cuda` / `reverie mlx` | the battle with the backend chosen by hand |
-| `reverie evolve` | the battle, plus a genetic algorithm evolving each team's tactical doctrine |
-| `reverie ufo` | the same dogfight with the built-in pilots: no models, no GPU |
-| `reverie install` | optional screensaver mode: play whenever your shell prompt sits idle |
+| `reverie` | start a battle; picks CUDA, or MLX on Apple silicon |
+| `reverie cuda` / `reverie mlx` | start a battle with the backend chosen by hand |
+| `reverie evolve` | start a battle where a genetic algorithm also evolves each team's tactics |
+| `reverie ufo` | the built-in pilots: no models, no GPU |
+| `reverie models` | the model catalogue and what fits your GPU |
+| `reverie --zorb MODEL --krell MODEL` | pick the two commanders (an alias from the catalogue or any Hugging Face id) |
+| `reverie arena check --load` | verify Python, GPU and models; load both and time a decision |
+| `reverie arena pull` | download the models ahead of time |
+| `reverie arena lessons` | what each commander has learned so far |
+| `reverie reset model \| score \| all` | forget the lessons, the games won, or both |
+| `reverie install` / `reverie uninstall` | optional screensaver mode: play whenever your shell sits idle |
+| `reverie remove` | delete everything reverie put on the machine, including itself |
 
-The scene: a dithered night sky with a slow aurora and moonlit clouds over a city, a farm
-with a barn, a fence, a road with passing cars and ten grazing cows (a new one walks out of
-the barn after every abduction). Saucers are shaded and bank into turns, leave motion
-trails, shimmer when hit; bolts, explosions and abduction beams light up the buildings and
-the field. Rendering is plain truecolor text (half-blocks and braille), so it works in the
-default Ubuntu terminal (GNOME Terminal / Ptyxis) and any other truecolor terminal, Linux
-or macOS, with no graphics protocol.
+Options for a battle: `--lessons on|off`, `--fps N`, `--seed N`, `--duration SECS`,
+`--perf FILE`. `reverie --help` lists everything.
 
-## Screensaver mode and uninstalling
+## How a battle works
 
-```sh
-reverie install                 # play when the prompt idles (bash, zsh, fish); idle_seconds in the config
-reverie uninstall               # remove the hook
-reverie remove                  # remove everything reverie put on the machine
-```
+**Rules.** Each team has 4 saucers on screen. A destroyed saucer is replaced 4 s later from a
+budget of 20 reinforcements per game; when a team has nothing in the air and nothing left to
+send, it loses the game. Ten seconds later the next game starts, and the loser fields an extra
+saucer. Score is kills plus cows abducted; games won are remembered per model pair. A game
+lasts about a minute and a half. Every kill, reinforcement, abduction and result is one line in
+`~/.local/state/reverie/match.log`.
 
-`install` appends a marked block to your rc file (with a timestamped backup);
-`reverie uninstall` removes it and stops the watchers but keeps your config, the
-commanders' memories and the models. **`reverie remove`** deletes everything reverie
-put on the machine: the hook, watchers, `~/.config/reverie`, `~/.local/state/reverie`
-(memories, scores, logs), `~/.local/share/reverie` (the sidecar copy), the runtime dir
-and the binary itself; it lists all of it and asks first (`--yes` skips the question,
-`--models` also deletes the two downloaded models from the Hugging Face cache). Only
-the rc-file backups stay. Editing the source does not touch the installed binary: run
-`cargo install --path .` again (and open a new terminal, or `pkill -f "reverie watch"`)
-to pick up changes.
+**Commanders.** About once a second each model receives a compact text description of the
+situation (its saucers with hit points, nearest enemy and nearest cow, the enemy's saucers,
+recent events, the enemy's last battle cry) and answers with one order per saucer:
+`attack E4`, `hunt`, `flee` or `abduct C1`. The orders are flown by the same steering code as
+the built-in pilots, so the fight stays smooth no matter how slow or confused a model is.
+When a team loses a saucer, its commander shouts a battle cry that shows in the HUD.
 
-## Choosing the models
+**Learning.** After every loss the commander is shown the post-mortem (who killed the saucer,
+from what range, what it was doing, how long it had been flying damaged, how outnumbered it
+was) and writes one rule to avoid that fate. Rules stay in its prompt for the rest of the
+session and persist on disk, so a pair of models keeps evolving across battles. Nothing is
+fine-tuned; this is in-context learning, which is what fits next to a game on an 8 GB card.
 
-```sh
-reverie models                          # the catalogue: aliases, sizes, what fits 8 GB next to your other model
-reverie --zorb qwen3-1.7b --krell llama3.2-1b        # any alias, or any Hugging Face id (`id@commit` pins the weights)
-reverie arena pull                      # download them ahead of time
-reverie arena check --load              # load both, time a decision each, print the peak GPU memory
-```
+**Evolve.** With `reverie evolve`, each team also carries a *doctrine*: six tactical
+parameters with hard bounds (when to flee, when fleeing is forbidden, how close a cow must be
+and how far the enemy, how often to focus fire, how much of the fleet may retreat at once).
+The doctrine is spelled out in the model's prompt and enforced on every order it gives, and a
+genetic algorithm scores the active doctrine over each game and breeds the next generation.
+The model explores tactics only inside a heuristic envelope, and the envelope is what evolves.
+It runs in Rust with no extra model calls, so it costs nothing.
 
-Catalogue (bf16 sizes, 2026-09): Qwen3 0.6B / 1.7B, Qwen2.5 0.5B / 1.5B, SmolLM2 360M / 1.7B,
-SmolLM3 3B, Llama 3.2 1B / 3B (gated), Gemma 3 1B (gated), TinyLlama 1.1B, Granite 3.3 2B,
-DeepSeek-R1-Distill 1.5B, Phi-4-mini. Anything with a chat template and safetensors works;
-`lm_quant = "8bit"` makes the 3B-class pairs fit 8 GB. To keep a pair, set `lm_model_a` /
-`lm_model_b` in the config. Gated models need the licence accepted on Hugging Face and
-`HF_TOKEN` in the environment.
+## Models
 
-## The battle in detail
+The defaults are `Qwen/Qwen3-0.6B` for ZORB and `HuggingFaceTB/SmolLM2-1.7B-Instruct` for
+KRELL: two families, both ungated, 4.6 GB of GPU memory together. `reverie models` prints the
+catalogue with sizes and whether each entry fits 8 GB next to your other model. Every listed
+model is **ungated**: no licence click-through, no token.
 
-```sh
-reverie arena lessons                   # what each commander has learned, and the evolved doctrines
-reverie reset model                     # wipe lessons + doctrines;  reverie reset score  wipes games won
-```
-
-Defaults are chosen for an **8 GB CUDA card**: team ZORB is `Qwen/Qwen3-0.6B`, team
-KRELL is `HuggingFaceTB/SmolLM2-1.7B-Instruct`; together they take about 5 GB of GPU
-memory (bf16/fp16), and the sidecar caps itself at `lm_vram_gb` (6 GB) so it can never
-crowd out the desktop. Decisions take 0.2–0.8 s on an RTX 4000 Ada; each team gets new
-orders every 1–2 s while the low-level steering keeps flying smoothly in between.
-
-How it works: `reverie` spawns `agents/arena.py` (embedded in the binary, written to
-`~/.local/share/reverie/arena.py`) and talks a line protocol over pipes. Each team
-fields 5 saucers. Every second or so a commander receives a compact text situation
-(its ships, hp, nearest enemy and nearest cow with distances, recent events, the
-enemy's last cry) and answers with one order per ship — `attack E4`, `hunt`, `flee`,
-`abduct C1`; there is no idle order. Orders are executed by the same steering
-behaviours as the baseline pilots, so the feel of the fight stays the same.
-
-Rules of a game: 4 saucers per team on screen (`lm_max_alive`). A destroyed saucer is
-replaced by a reinforcement 4 s later, out of a budget of 20 per team per game
-(`lm_regens`); when the budget is gone it is a fight to the death. A team with no saucer
-in the air **and** no reinforcement left loses the game (a game lasts about 90 s and 40
-kills with the defaults). 10 s later the next game starts and the loser fields one
-extra saucer. Every kill, reinforcement, abduction and game result is one line in
-`~/.local/state/reverie/match.log`. Score = kills + cows abducted per game; games won are persisted per model
-pair in `~/.local/state/reverie/score-<A>-vs-<B>.txt` (`reverie reset score` clears them).
-When a team loses a saucer its commander is asked for a one-line battle cry, shown in
-the HUD for 20 s.
-
-**Evolve** (`lm_evolve = true`, or `--evolve on|off`): when a saucer dies, its
-commander gets the post-mortem (who killed it, from what range, what it was doing, how
-long it had been flying damaged, how outnumbered it was) and writes one rule to avoid
-that death next time; a wiped-out fleet gets a bigger-picture post-mortem as well. Rules go into the commander's prompt for the rest of the match
-and persist in `~/.local/state/reverie/lessons/`, so the models keep evolving across
-sessions. Nothing is fine-tuned: this is in-context learning, which is what fits next
-to a screensaver on an 8 GB card.
-
-**Evolve, the genetic kind** (`reverie run ufo-battle evolve`, or `lm_genetic = true`):
-each team also carries a *doctrine*, six tactical parameters with hard bounds (flee
-below N hp, never flee above M hp, abduct only a cow within D when no enemy is within
-R laser ranges, focus-fire probability, how much of the fleet may flee at once). The
-doctrine is spelled out in the commander's prompt and **enforced** on every order it gives:
-an order outside the bounds is corrected and the model is told how many were corrected.
-A genetic algorithm (population of 6 per team, in Rust, no extra model calls) scores the
-active doctrine every 90 s of play or at game end by kills − losses + ½ cows (± a win
-bonus) per minute, then breeds the next generation by crossover and bounded mutation.
-Both teams evolve in parallel; populations persist in `~/.local/state/reverie/doctrine-*.txt`
-and show up in `reverie arena lessons`. This follows the AutoSafe idea (an explicit
-threat model + safe-action correction + reflection): the language model explores tactics
-only inside a heuristic envelope, and what evolves is the envelope. `reverie reset model`
-forgets lessons and doctrines; `reverie reset all` also resets the scoreboard.
-
-Config keys (`reverie config` prints them all): `ufo_pilots`, `lm_backend`
-(`auto` | `cuda` | `mlx`), `lm_model_a`, `lm_model_b`, `lm_vram_gb`, `lm_quant`
-(`8bit`/`4bit` via bitsandbytes for bigger pairs), `lm_python`, `lm_think_seconds`,
-`lm_evolve` (lessons), `lm_genetic` (doctrine GA), `lm_max_alive`, `lm_regens`. Any Hugging Face causal LM with a chat template works; on MLX the
-`mlx-community/*-4bit` repos are the small, fast choice. The sidecar's log is
-`~/.local/state/reverie/arena.log`.
-
-## Config
+| alias | model | bf16 | notes |
+|---|---|---|---|
+| `qwen3-0.6b` | Qwen/Qwen3-0.6B | 1.5 GB | default for ZORB; fast and decisive |
+| `qwen3-1.7b` | Qwen/Qwen3-1.7B | 4.1 GB | stronger Qwen; pair it with a small partner |
+| `qwen2.5-0.5b` | Qwen/Qwen2.5-0.5B-Instruct | 1.0 GB | tiny and quick |
+| `qwen2.5-1.5b` | Qwen/Qwen2.5-1.5B-Instruct | 3.1 GB | |
+| `smollm2-360m` | HuggingFaceTB/SmolLM2-360M-Instruct | 0.7 GB | under 1B: often skips the order format |
+| `smollm2-1.7b` | HuggingFaceTB/SmolLM2-1.7B-Instruct | 3.4 GB | default for KRELL |
+| `llama3.2-1b` | unsloth/Llama-3.2-1B-Instruct | 2.5 GB | Meta's Llama 3.2 1B, ungated mirror |
+| `gemma3-1b` | unsloth/gemma-3-1b-it | 2.0 GB | Google's Gemma 3 1B, ungated mirror |
+| `lfm2-1.2b` | LiquidAI/LFM2-1.2B | 2.3 GB | Liquid AI, built for on-device use |
+| `lfm2-700m` | LiquidAI/LFM2-700M | 1.5 GB | under 1B: often skips the order format |
+| `olmo2-1b` | allenai/OLMo-2-0425-1B-Instruct | 3.0 GB | fully open training recipe; likes to abduct |
+| `falcon3-1b` | tiiuae/Falcon3-1B-Instruct | 3.3 GB | |
+| `danube3-500m` | h2oai/h2o-danube3-500m-chat | 1.0 GB | under 1B: often skips the order format |
+| `deepseek-r1-1.5b` | deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B | 3.6 GB | thinking model: slower, chatty |
+| `granite3.3-2b` | ibm-granite/granite-3.3-2b-instruct | 5.1 GB | `lm_quant = "8bit"` next to a partner |
+| `smollm3-3b` | HuggingFaceTB/SmolLM3-3B | 6.2 GB | `lm_quant = "8bit"` next to a partner |
+| `qwen2.5-3b` | Qwen/Qwen2.5-3B-Instruct | 6.2 GB | `lm_quant = "8bit"` next to a partner |
 
 ```sh
-reverie config > ~/.config/reverie/config.toml           # then edit
-reverie pause 60 / reverie resume                        # screensaver mode, e.g. during a screen share
+reverie --zorb lfm2-1.2b --krell llama3.2-1b     # try a pair once
+reverie arena check --load                        # confirm both load and see the peak GPU memory
 ```
 
-Screensaver keys: `idle_seconds` (300), `scenes` (`["ufo"]` needs no GPU; `["ufo-battle"]`
-lets the models play while you're away), `rotate_minutes`, `fps` (30), `unfocused_fps`
-(12), `max_instances` (3), `tolerance` (5).
+To keep a pair, set `lm_model_a` and `lm_model_b` in the config. Any Hugging Face model with
+a chat template and safetensors weights works; append `@<commit>` to pin the weights. On MLX
+the same ids work through mlx-lm, and the `mlx-community/*-4bit` repos are smaller and faster.
+Sizes above are bf16 safetensors as reported by the Hugging Face API in September 2026. The
+defaults and the 1B-class entries (Llama 3.2, Gemma 3, LFM2, OLMo 2, Falcon3, danube3, SmolLM2
+360M, Qwen2.5 0.5B) were each loaded and asked for orders; the 1B-and-up models answer in the
+format almost every time, the sub-1B ones often don't (a saucer without a new order keeps its
+last one, so the fight goes on either way). The 3B-class entries are listed on size alone. Models whose chat template has no system role
+(h2o-danube, Gemma 2) get the system prompt folded into the user turn automatically.
 
-## How it stays light
-
-* **Watcher (screensaver mode): ~1 MB RSS per shell**, sleeps until the idle deadline, polls nothing.
-* **Saver: ~0.35 ms per frame, ~30 KB of output per frame** at 200×55 (see bench).
-  The encoder only redraws changed cells, ignores sub-threshold colour drift, and
-  tracks cursor/SGR state — terminal CPU scales with bytes, so bytes are the budget.
-* **0.66 MB static-ish binary**, one dependency (`libc`). The language models live in a
-  separate Python process that exists only while `ufo-battle` is on screen.
-
-## How idle detection works (and why SIGALRM)
-
-Measured, not assumed: bash **defers USR1/USR2 traps while idle in readline** (they
-only fire after the next Enter), but services **SIGALRM immediately**. So a watcher
-checks that the shell owns the terminal (no command running) and the tty has had
-no input for `idle_seconds`, writes a marker, and sends SIGALRM; the shell's trap
-runs `reverie run --idle-trigger`, which verifies the marker (stray alarms are no-ops).
-Verified in bash 5.2, zsh 5.9, fish 3.7. Your half-typed line survives; the wake
-key is swallowed. On Linux the watcher reads `/proc`; on macOS it asks `ps` for the
-tty's foreground process group (the shell snippet passes `--tty "$(tty)"`).
-
-## Verification
+## Screensaver mode
 
 ```sh
-reverie bench --size 200x55                    # vs locked eval/thresholds.toml
-python3 eval/test_terminal.py                  # 18 pty checks across bash/zsh/fish
-python3 eval/test_arena.py                     # sidecar prompt/parsing/lessons, no GPU
-reverie arena check --load                     # the GPU side: load both models, time a decision
-reverie snapshot --scene ufo --out u.ansi && python3 eval/ansi2png.py u.ansi u.png
+reverie install                  # bash, zsh or fish: play when the prompt has been idle
+reverie pause 60                 # quiet for an hour, e.g. during a screen share
+reverie uninstall                # remove the hook again
 ```
 
-## Performance and lag
+`install` appends a marked block to your shell rc file (with a timestamped backup). A tiny
+watcher (about 1 MB) sleeps in each shell and wakes the saver after `idle_seconds`; it only
+fires when the shell is sitting at its prompt, so builds and editors are never interrupted.
+Any key restores your prompt with the half-typed line intact. By default the screensaver runs
+the built-in pilots (`scenes = ["ufo"]`); set `scenes = ["ufo-battle"]` to let the models play
+while you are away.
 
-The whole frame loop costs about 0.5 ms (update 0.01, render 0.3, encode 0.15 ms) and 3 percent
-of one core at 60 fps on a 200×55 terminal, so lag can only come from the terminal draining
-bytes. The saver writes a diff (only changed cells, 25–35 KB per frame); if the terminal cannot
-keep up, `write()` blocks. A **lag guard** watches for that and halves the frame rate for 5 s
-while raising the encoder's colour tolerance (fewer changed cells, fewer bytes), relaxing back
-once writes are fast again. Measured under a terminal throttled to 600 KB/s: 25 fps with the
-guard, 15 fps without it, 58 fps on a fast terminal either way. `reverie --perf FILE` (or `REVERIE_PERF=FILE`) writes one line per second with fps,
-per-stage timings, bytes per frame, the longest frame gap, CPU share and lag-guard events;
-that is how the numbers above were taken. The sidecar runs at lower CPU priority (`nice 5`).
-If your terminal struggles, `fps = 30` in the config halves the byte rate.
+## Configuration
 
-## Why Rust, and what is enforced
+`reverie config` prints the default file; copy it to `~/.config/reverie/config.toml` and edit.
 
-The binary must live inside every shell for hours and take over the terminal without
-ever damaging it, so it is written to be small, memory-safe and auditable:
+| key | default | meaning |
+|---|---|---|
+| `lm_backend` | `auto` | `cuda`, `mlx`, or `auto` (MLX on Apple silicon, CUDA elsewhere) |
+| `lm_model_a`, `lm_model_b` | Qwen3-0.6B, SmolLM2-1.7B | the two commanders |
+| `lm_vram_gb` | 6 | GPU memory cap for the sidecar (both models) |
+| `lm_quant` | `none` | `8bit` or `4bit` via bitsandbytes for bigger pairs (CUDA) |
+| `lm_evolve` | true | write and use lessons after each loss |
+| `lm_genetic` | false | doctrine evolution (same as the `evolve` word) |
+| `lm_max_alive`, `lm_regens` | 4, 20 | saucers on screen; reinforcements per game |
+| `lm_think_seconds` | 1.0 | minimum pause between a team's orders |
+| `lm_python` | `python3` | the interpreter that has torch or mlx-lm |
+| `idle_seconds`, `fps`, `scenes` | 300, 30, `["ufo"]` | screensaver mode |
+| `tolerance` | 5 | colour change ignored between frames (fewer bytes) |
 
-* one dependency (`libc`); `cargo audit` runs in CI against the RustSec database; builds are
-  `--locked`;
-* `cargo clippy -- -D warnings` and `cargo fmt --check` are CI gates, 0 warnings; integer
-  `overflow-checks` stay on in release (this caught a real overflow in the noise sampler);
-* `unsafe` appears only where POSIX requires it (termios, ioctl, signals, fork/setsid,
-  flock, getuid/chmod); every site carries a `// SAFETY:` justification, enforced by clippy;
-* the Python sidecar passes `bandit` and `ruff`; model downloads can be pinned to a commit;
-* `scripts/qa.sh` runs the whole gate locally; see `SECURITY.md` for the threat model;
-* everything that comes back from the language models is filtered to printable ASCII
-  before it can reach the terminal or a file (no escape-sequence injection from a model);
-* the sidecar's stdout is a fixed line protocol parsed by hand; its stderr goes to a log;
-  the binary never opens a network connection (models are fetched by the Python side);
-* the runtime dir is created `0700`; state lives under XDG paths only; `reverie remove`
-  deletes exactly those paths and nothing else;
-* release builds use `panic = "abort"` with a panic hook that restores the terminal first.
+## Performance
+
+The frame loop costs about half a millisecond and 3 percent of a core at 60 fps on a 200×55
+terminal; only changed cells are sent (25 to 35 KB per frame). Lag can therefore only come from
+a terminal that cannot drain bytes fast enough. A lag guard detects blocked writes, halves the
+frame rate for a few seconds and raises the colour tolerance so fewer cells change, then relaxes
+again; under a terminal throttled to 600 KB/s that keeps the battle at 25 fps. `reverie --perf
+FILE` writes one line per second with fps, per-stage timings, bytes per frame, the longest
+frame gap and CPU share. If your terminal struggles, set `fps = 30`.
+
+## Security and quality
+
+reverie takes over your terminal, so it is built to be small, memory-safe and auditable:
+
+- one dependency (`libc`); `cargo audit`, `cargo clippy -D warnings`, `cargo fmt --check` and
+  `--locked` builds are CI gates; every `unsafe` block carries a justification that clippy
+  checks; integer overflow checks stay on in release;
+- everything a model produces is filtered to printable ASCII before it can reach the terminal
+  or a file; models never get a tool, a file or a shell;
+- the binary never opens a network connection; the sidecar downloads models through
+  `huggingface_hub` (safetensors, no remote code), pinnable to a commit; it passes `bandit`
+  and `ruff`;
+- the terminal is restored on every exit path, including SIGTERM and panics;
+- `reverie remove` deletes exactly what reverie created.
+
+Details and the threat model: [SECURITY.md](SECURITY.md). Run the whole gate locally with
+`scripts/qa.sh --full`.
+
+## Development
+
+```sh
+scripts/qa.sh --full                                # fmt, clippy, audit, build, bench, tests, pty harness
+reverie bench --size 200x55 | python3 eval/check_bench.py /dev/stdin     # frame time and bytes vs eval/thresholds.toml
+reverie snapshot --scene ufo --out u.ansi && python3 eval/ansi2png.py u.ansi u.png   # deterministic frame to PNG
+```
+
+How it is put together, from the SIGALRM idle wake to the sidecar protocol and the genetic
+evolver: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Release history: [CHANGELOG.md](CHANGELOG.md).
 
 ## Known limits
 
-* GNOME Terminal/Ptyxis have no pixel graphics protocol, so art is at half-block
-  resolution (a maximised 200×55 terminal = 200×110 pixels).
-* bash: after waking, the cursor shows at column 0 until your first keystroke
-  (the line itself is intact and typing continues correctly).
-* tty idle time has 8-second kernel granularity; `idle_seconds` is honoured ±8 s.
-* zsh users with `TMOUT` + their own `TRAPALRM` are chained, not replaced.
-* The commanders are 0.6B–1.7B models: they misread the field, forget a ship, or copy
-  the enemy's taunt now and then. That is part of the show; the steering layer keeps
-  the saucers flying sensibly under any order.
-* The macOS watcher and the MLX backend were written against the documented APIs and
-  cross-compiled here, not run on a Mac yet.
+- Character cells, not pixels: a maximised terminal gives 200×110 pixels. Sextant and octant
+  characters could quadruple that on recent terminals; not done yet.
+- The commanders are 0.6B to 1.7B models. They misread the field, forget a saucer or echo the
+  enemy's cry now and then; the steering layer keeps the saucers flying sensibly regardless.
+- The macOS watcher and the MLX backend compile and are unit-tested but have not been run on a
+  Mac yet.
+- bash shows the cursor at column 0 after waking until the first keystroke; the line is intact.
 
-MIT licensed. Architecture and internals: `docs/ARCHITECTURE.md`. Security posture: `SECURITY.md`. History: `CHANGELOG.md`.
+MIT licensed.

@@ -68,6 +68,20 @@ def label_of(model_id):
 
 # ------------------------------------------------------------------ backends
 
+def chat_text(tok, messages):
+    """Render the chat with the model's template. Templates without a system role (h2o-danube,
+    gemma-2 style) raise; fold the system prompt into the first user turn and try again."""
+    kw = dict(tokenize=False, add_generation_prompt=True, enable_thinking=False)
+    try:
+        return tok.apply_chat_template(messages, **kw)
+    except Exception:  # noqa: BLE001 - jinja2.TemplateError, ValueError, ... depending on the template
+        system = " ".join(m["content"] for m in messages if m["role"] == "system")
+        rest = [dict(m) for m in messages if m["role"] != "system"]
+        if rest and system:
+            rest[0]["content"] = system + "\n\n" + rest[0]["content"]
+        return tok.apply_chat_template(rest, **kw)
+
+
 class Commander:
     def __init__(self, model_id, model, tok):
         self.model_id, self.model, self.tok = model_id, model, tok
@@ -115,7 +129,7 @@ class TorchBackend:
 
     def generate(self, c, messages, max_new):
         torch = self.torch
-        text = c.tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+        text = chat_text(c.tok, messages)
         ids = c.tok(text, return_tensors="pt").to(self.dev)
         pad = c.tok.pad_token_id if c.tok.pad_token_id is not None else c.tok.eos_token_id
         with torch.inference_mode():
@@ -149,7 +163,7 @@ class MlxBackend:
         return Commander(model_id, model, tok)
 
     def generate(self, c, messages, max_new):
-        text = c.tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+        text = chat_text(c.tok, messages)
         out = self._generate(c.model, c.tok, prompt=text, max_tokens=max_new, sampler=self._sampler, verbose=False)
         return out, len(c.tok.encode(out))
 

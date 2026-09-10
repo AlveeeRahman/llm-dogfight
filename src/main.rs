@@ -245,23 +245,27 @@ fn arena_cmd(cfg: &Config, a: &Args) -> i32 {
     }
 }
 
-/// Popular small instruct models that fit the 8 GB target (bf16 sizes from the Hugging Face API,
-/// 2026-09-10). `reverie models` prints it; `--zorb` / `--krell` accept the alias or any HF id.
+/// Popular small instruct models, all ungated (no licence click-through, no token), with bf16
+/// sizes from the Hugging Face API on 2026-09-10. `reverie models` prints it; `--zorb` / `--krell`
+/// accept an alias or any HF id.
 const MODELS: &[(&str, &str, f32, &str)] = &[
     ("qwen3-0.6b", "Qwen/Qwen3-0.6B", 1.5, "default for ZORB; fast, decisive"),
     ("qwen3-1.7b", "Qwen/Qwen3-1.7B", 4.1, "stronger Qwen; pair with a small partner"),
     ("qwen2.5-0.5b", "Qwen/Qwen2.5-0.5B-Instruct", 1.0, "tiny and quick"),
     ("qwen2.5-1.5b", "Qwen/Qwen2.5-1.5B-Instruct", 3.1, ""),
-    ("smollm2-360m", "HuggingFaceTB/SmolLM2-360M-Instruct", 0.7, "smallest that still follows the format"),
+    ("smollm2-360m", "HuggingFaceTB/SmolLM2-360M-Instruct", 0.7, "under 1B: often skips the order format (ships keep their last order)"),
     ("smollm2-1.7b", "HuggingFaceTB/SmolLM2-1.7B-Instruct", 3.4, "default for KRELL; good instruction following"),
-    ("smollm3-3b", "HuggingFaceTB/SmolLM3-3B", 6.2, "needs lm_quant = \"8bit\" next to a partner"),
-    ("llama3.2-1b", "meta-llama/Llama-3.2-1B-Instruct", 2.5, "gated: accept the licence on HF and set HF_TOKEN"),
-    ("llama3.2-3b", "meta-llama/Llama-3.2-3B-Instruct", 6.4, "gated; needs lm_quant = \"8bit\""),
-    ("gemma3-1b", "google/gemma-3-1b-it", 2.0, "gated: accept the licence on HF and set HF_TOKEN"),
-    ("tinyllama", "TinyLlama/TinyLlama-1.1B-Chat-v1.0", 2.2, "old but tiny; weak at the format"),
-    ("granite3.3-2b", "ibm-granite/granite-3.3-2b-instruct", 5.1, "needs lm_quant = \"8bit\" next to a partner"),
+    ("llama3.2-1b", "unsloth/Llama-3.2-1B-Instruct", 2.5, "Meta's Llama 3.2 1B, ungated mirror"),
+    ("gemma3-1b", "unsloth/gemma-3-1b-it", 2.0, "Google's Gemma 3 1B, ungated mirror"),
+    ("lfm2-1.2b", "LiquidAI/LFM2-1.2B", 2.3, "Liquid AI, built for on-device use"),
+    ("lfm2-700m", "LiquidAI/LFM2-700M", 1.5, "under 1B: often skips the order format"),
+    ("olmo2-1b", "allenai/OLMo-2-0425-1B-Instruct", 3.0, "fully open training recipe; likes to abduct"),
+    ("falcon3-1b", "tiiuae/Falcon3-1B-Instruct", 3.3, ""),
+    ("danube3-500m", "h2oai/h2o-danube3-500m-chat", 1.0, "under 1B: often skips the order format"),
     ("deepseek-r1-1.5b", "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B", 3.6, "thinking model: slower, chatty"),
-    ("phi4-mini", "microsoft/Phi-4-mini-instruct", 7.7, "needs lm_quant = \"8bit\""),
+    ("granite3.3-2b", "ibm-granite/granite-3.3-2b-instruct", 5.1, "needs lm_quant = \"8bit\" next to a partner"),
+    ("smollm3-3b", "HuggingFaceTB/SmolLM3-3B", 6.2, "needs lm_quant = \"8bit\" next to a partner"),
+    ("qwen2.5-3b", "Qwen/Qwen2.5-3B-Instruct", 6.2, "needs lm_quant = \"8bit\" next to a partner"),
 ];
 
 fn resolve_model(name: &str) -> String {
@@ -278,7 +282,8 @@ fn models_cmd(cfg: &Config) -> i32 {
         println!("{mark}{:<17} {:<44} {:>4.1}GB  {}{}{}", alias, id, gb, note, if note.is_empty() { "" } else { "; " }, fits);
     }
     println!("\n* = current pair ({} vs {}).", cfg.lm_model_a, cfg.lm_model_b);
-    println!("swap: reverie --zorb qwen3-1.7b --krell llama3.2-1b        (alias or any Hugging Face id, `id@revision` to pin)");
+    println!("all of these are ungated (no licence click-through, no token).");
+    println!("swap: reverie --zorb lfm2-1.2b --krell llama3.2-1b        (alias or any Hugging Face id, `id@revision` to pin)");
     println!("keep: lm_model_a / lm_model_b in {}", config::config_path().display());
     println!("then: reverie arena pull   (download)   reverie arena check --load   (measure peak memory)");
     println!("mlx: the same ids work through mlx-lm; mlx-community/<name>-4bit repos are smaller and faster.");

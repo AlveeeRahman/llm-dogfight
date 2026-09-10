@@ -88,6 +88,23 @@ with tempfile.TemporaryDirectory() as tmp:
     check("lessons enter the system prompt", "Lessons from your past losses" in arena.system_prompt(1, L2) and "KRELL" in arena.system_prompt(1, L2))
 check("no lessons -> plain prompt", "Lessons" not in arena.system_prompt(0, arena.Lessons(None)))
 
+# chat templates without a system role
+class _NoSystemTok:
+    def apply_chat_template(self, messages, **kw):
+        if any(m["role"] == "system" for m in messages):
+            raise ValueError("System role not supported")
+        return "|".join(f"{m['role']}:{m['content']}" for m in messages) + "|assistant:"
+
+
+class _PlainTok:
+    def apply_chat_template(self, messages, **kw):
+        return "|".join(f"{m['role']}:{m['content']}" for m in messages)
+
+
+msgs = [{"role": "system", "content": "SYS"}, {"role": "user", "content": "USER"}]
+check("system prompt folded into user turn when the template rejects it", arena.chat_text(_NoSystemTok(), msgs) == "user:SYS\n\nUSER|assistant:")
+check("template with system role used as is", arena.chat_text(_PlainTok(), msgs) == "system:SYS|user:USER")
+
 # backend selection
 check("auto backend is cuda off-Mac", arena.pick_backend("auto") in ("cuda", "mlx") and arena.pick_backend("mlx") == "mlx")
 
