@@ -1,0 +1,27 @@
+# LOCKED SURFACE — agent-oracle segment 3.
+# Written BEFORE any implementation existed (2026-09-10). The build loop may read
+# this file but must never edit it to make a failing candidate pass. Changing a
+# threshold is a human decision, recorded in docs/BUILD_LOG.md with a reason.
+
+[perf]                      # measured by `reverie bench` (headless, same seed)
+ref_cols = 200              # a maximised GNOME Terminal on a 1080p screen
+ref_rows = 55
+frame_mean_ms = 4.0         # update + render + encode, mean over 600 frames
+frame_p95_ms = 8.0          # 30 fps budget is 33 ms; we want < 15% of one core
+bytes_mean_kb = 45.0        # terminal output per frame; VTE parse cost scales with this
+bytes_p95_kb = 110.0
+
+[footprint]
+binary_mb = 4.0             # stripped release binary
+watcher_rss_mb = 4.0        # resident per open terminal, forever — must be tiny
+saver_rss_mb = 20.0         # while animating
+import_peak_rss_mb = 4096   # image->animation ceiling set by the user (< 4 GB)
+
+[correctness]               # eval/test_terminal.py — all must pass, no partial credit
+exit_after_key_ms = 300     # keypress -> prompt back
+restore_termios = true      # `stty -g` identical before and after
+restore_screen = true       # alt-screen left, cursor shown, SGR reset
+idle_fires_at_prompt = true # bash, zsh, fish
+idle_silent_during_cmd = true
+partial_line_survives = true
+wake_key_not_leaked = true
