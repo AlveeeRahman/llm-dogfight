@@ -1,0 +1,25 @@
+[package]
+name = "reverie"
+version = "0.1.0"
+edition = "2021"
+description = "A tiny terminal screensaver for Linux: UFO dogfights, a garden that grows over days, a spiral galaxy and a painterly meadow. Wakes when your shell sits idle."
+license = "MIT"
+readme = "README.md"
+keywords = ["terminal", "screensaver", "tui", "ascii-art", "animation"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+libc = "0.2"
+# Only the image->animation importer needs decoders; everything else is std + libc.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif"], optional = true }
+
+[features]
+default = ["import"]
+import = ["dep:image"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"   # panic hook still restores the terminal before abort
+strip = true
