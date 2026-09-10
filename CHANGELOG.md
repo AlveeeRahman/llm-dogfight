@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 — 2026-09-10
+
+- `reverie remove` now also deletes the rc-file backups and the models it downloaded (only
+  those reverie knows about; the rest of the Hugging Face cache is untouched). `--keep-models`
+  opts out. Nothing is left behind.
+
 ## 0.3.1 — 2026-09-10
 
 - Model catalogue is now entirely ungated: the gated `meta-llama` and `google` entries were

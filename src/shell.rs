@@ -59,7 +59,7 @@ pub fn detect_shell() -> String {
     std::env::var("SHELL").ok().and_then(|s| s.rsplit('/').next().map(String::from)).unwrap_or_else(|| "bash".into())
 }
 
-fn rc_path(shell: &str) -> Option<PathBuf> {
+pub fn rc_path(shell: &str) -> Option<PathBuf> {
     Some(match shell {
         "bash" => home().join(".bashrc"),
         "zsh" => std::env::var_os("ZDOTDIR").map(PathBuf::from).unwrap_or_else(home).join(".zshrc"),

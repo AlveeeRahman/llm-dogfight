@@ -44,7 +44,7 @@ the binary.
 | `reverie arena lessons` | what each commander has learned so far |
 | `reverie reset model \| score \| all` | forget the lessons, the games won, or both |
 | `reverie install` / `reverie uninstall` | optional screensaver mode: play whenever your shell sits idle |
-| `reverie remove` | delete everything reverie put on the machine, including itself |
+| `reverie remove` | delete everything reverie put on the machine: config, memories, downloaded models, itself |
 
 Options for a battle: `--lessons on|off`, `--fps N`, `--seed N`, `--duration SECS`,
 `--perf FILE`. `reverie --help` lists everything.
@@ -177,7 +177,10 @@ reverie takes over your terminal, so it is built to be small, memory-safe and au
   `huggingface_hub` (safetensors, no remote code), pinnable to a commit; it passes `bandit`
   and `ruff`;
 - the terminal is restored on every exit path, including SIGTERM and panics;
-- `reverie remove` deletes exactly what reverie created.
+- `reverie remove` deletes exactly what reverie created: its config, state and data dirs, the
+  rc-file backups from `reverie install`, the models it downloaded (only those; other files in
+  the Hugging Face cache stay) and the binary. It lists everything and asks first;
+  `--keep-models` keeps the weights, `--yes` skips the question.
 
 Details and the threat model: [SECURITY.md](SECURITY.md). Run the whole gate locally with
 `scripts/qa.sh --full`.

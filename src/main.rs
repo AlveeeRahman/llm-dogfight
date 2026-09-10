@@ -33,10 +33,9 @@ USAGE
   reverie install [--shell bash|zsh|fish]
                                   optional: also play whenever your prompt sits idle (screensaver mode)
   reverie uninstall               remove that shell hook, stop watchers (keeps config, memories, models)
-  reverie remove [--yes] [--models]
+  reverie remove [--yes] [--keep-models]
                                   uninstall everything: hook, watchers, config, memories, scores,
-                                  logs, the sidecar copy and this binary; --models also deletes
-                                  the two downloaded models from the Hugging Face cache
+                                  logs, rc-file backups, the downloaded models, and this binary
   reverie pause [MINUTES] | resume
   reverie status                  show config, integration and watchers
   reverie config                  print the default config (copy to ~/.config/reverie/config.toml)
@@ -61,7 +60,7 @@ impl Args {
                 if let Some((k, v)) = k.split_once('=') {
                     flags.push((k.to_string(), Some(v.to_string())));
                 } else if it.peek().map(|n| !n.starts_with("--")).unwrap_or(false)
-                    && !matches!(k, "daemon" | "help" | "version" | "json" | "load" | "yes" | "models")
+                    && !matches!(k, "daemon" | "help" | "version" | "json" | "load" | "yes" | "models" | "keep-models")
                 {
                     flags.push((k.to_string(), it.next()));
                 } else {
@@ -294,8 +293,10 @@ fn cfg_size(id: &str) -> f32 {
     MODELS.iter().find(|m| m.1 == id).map(|m| m.2).unwrap_or(3.0)
 }
 
-/// `reverie remove [--yes] [--models]`: the whole footprint, then the binary itself.
+/// `reverie remove [--yes] [--keep-models]`: the whole footprint — hook, watchers, config,
+/// state, data, runtime dir, rc-file backups, the models reverie downloaded — then the binary.
 fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
+    let keep_models = a.has("keep-models");
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
     let exe = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
     let cargo_bin = home.join(".cargo/bin/reverie");
@@ -304,8 +305,24 @@ fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
         dirs.insert(0, c.to_path_buf());
     }
     let hf_hub = std::env::var_os("HF_HOME").map(|h| std::path::PathBuf::from(h).join("hub")).unwrap_or_else(|| home.join(".cache/huggingface/hub"));
-    let models: Vec<std::path::PathBuf> =
-        [&cfg.lm_model_a, &cfg.lm_model_b].iter().map(|m| hf_hub.join(format!("models--{}", m.replace('/', "--")))).filter(|p| p.exists()).collect();
+    // only models reverie itself would have downloaded: the catalogue and the configured pair
+    let mut ids: Vec<String> = MODELS.iter().map(|m| m.1.to_string()).collect();
+    for m in [&cfg.lm_model_a, &cfg.lm_model_b] {
+        let id = m.split('@').next().unwrap_or(m).to_string();
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    let models: Vec<std::path::PathBuf> = ids.iter().map(|m| hf_hub.join(format!("models--{}", m.replace('/', "--")))).filter(|p| p.exists()).collect();
+    // backups `reverie install` made of the rc files
+    let mut backups: Vec<std::path::PathBuf> = vec![];
+    for sh in ["bash", "zsh"] {
+        let Some(rc) = shell::rc_path(sh) else { continue };
+        let prefix = format!("{}.reverie-backup-", rc.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default());
+        if let Some(rd) = rc.parent().and_then(|d| std::fs::read_dir(d).ok()) {
+            backups.extend(rd.flatten().map(|e| e.path()).filter(|p| p.file_name().map(|f| f.to_string_lossy().starts_with(&prefix)).unwrap_or(false)));
+        }
+    }
     let mut bins: Vec<std::path::PathBuf> = vec![];
     if cargo_bin.exists() {
         bins.push(cargo_bin.clone());
@@ -323,16 +340,20 @@ fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
             println!("  {}", d.display());
         }
     }
+    for b in &backups {
+        println!("  {} (backup of your rc file made by `reverie install`)", b.display());
+    }
+    if keep_models {
+        println!("  (kept: {} downloaded model dir(s) in {}, --keep-models)", models.len(), hf_hub.display());
+    } else {
+        for m in &models {
+            println!("  {} ({} MB, downloaded model)", m.display(), dir_size_mb(m));
+        }
+    }
     for b in &bins {
         println!("  {} (the program itself)", b.display());
     }
-    if a.has("models") {
-        for m in &models {
-            println!("  {} ({} MB)", m.display(), dir_size_mb(m));
-        }
-    } else if !models.is_empty() {
-        println!("  (kept: {} model dir(s) in {}; add --models to delete them)", models.len(), hf_hub.display());
-    }
+    println!("  (anything else in {} is not reverie's and stays)", hf_hub.display());
     if !a.has("yes") {
         print!("Remove all of this? [y/N] ");
         use std::io::Write;
@@ -345,34 +366,25 @@ fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
         }
     }
     println!("{}", shell::uninstall());
-    for d in &dirs {
-        if d.exists() {
-            match std::fs::remove_dir_all(d) {
-                Ok(()) => println!("removed {}", d.display()),
-                Err(e) => eprintln!("could not remove {}: {e}", d.display()),
-            }
-        }
+    let gone = |path: &std::path::Path, dir: bool| match if dir { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) } {
+        Ok(()) => println!("removed {}", path.display()),
+        Err(e) => eprintln!("could not remove {}: {e}", path.display()),
+    };
+    for d in dirs.iter().filter(|d| d.exists()) {
+        gone(d, true);
     }
-    if a.has("models") {
+    if !keep_models {
         for m in &models {
-            match std::fs::remove_dir_all(m) {
-                Ok(()) => println!("removed {}", m.display()),
-                Err(e) => eprintln!("could not remove {}: {e}", m.display()),
-            }
+            gone(m, true);
         }
     }
-    let _ = std::fs::remove_dir_all(home.join(".cargo/registry/cache/reverie")); // never exists; harmless
+    for b in &backups {
+        gone(b, false);
+    }
     for b in &bins {
-        match std::fs::remove_file(b) {
-            Ok(()) => println!("removed {}", b.display()),
-            Err(e) => eprintln!("could not remove {}: {e}", b.display()),
-        }
+        gone(b, false);
     }
-    println!(
-        "reverie is gone. Left behind on purpose: the rc-file backups `~/.bashrc.reverie-backup-*` (delete when happy){}",
-        if a.has("models") { "." } else { " and the Hugging Face model cache." }
-    );
-    println!("open a new terminal so running shells drop the old trap.");
+    println!("reverie is gone{}. Open a new terminal so running shells drop the old trap.", if keep_models { " (models kept)" } else { "" });
     0
 }
 

@@ -19,7 +19,9 @@ your machine. This page says what it does, what it does not do, and how it is ch
   (Hugging Face models through `huggingface_hub`). Pin a model to a revision with
   `--zorb Qwen/Qwen3-0.6B@<commit>` or `lm_model_a = "…@<commit>"` if you need reproducible weights.
   It runs at lower CPU priority and is killed when the battle ends.
-- **`reverie remove`** deletes exactly the paths above plus the binary; nothing else.
+- **`reverie remove`** deletes exactly the paths above, the rc-file backups it made, the model
+  directories it downloaded (catalogue models and the configured pair only) and the binary;
+  nothing else. `--keep-models` keeps the weights.
 
 ## What is enforced on every change (CI gates)
 
