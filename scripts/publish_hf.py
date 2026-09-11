@@ -33,7 +33,7 @@ def main():
     front = ("---\ntitle: LLM Dogfight\nemoji: 🛸\ncolorFrom: purple\ncolorTo: green\nsdk: static\npinned: true\nlicense: mit\n"
              "short_description: Two small local LLMs dogfight in your terminal\n---\n\n")
     body = markdown.markdown(readme, extensions=["tables", "fenced_code"])
-    tmpl = (root / "space" / "index.html.tmpl").read_text(encoding="utf-8")
+    tmpl = (root / "space" / "landing.html").read_text(encoding="utf-8")
     page = tmpl.replace("@GITHUB@", GITHUB).replace("@BODY@", body)
     out = pathlib.Path("target/scratch/hf_space")
     out.mkdir(parents=True, exist_ok=True)
