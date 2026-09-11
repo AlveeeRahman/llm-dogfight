@@ -228,6 +228,22 @@ pub fn watch(pid: i32, tty_hint: Option<&str>, idle_override: Option<u64>, daemo
         if !paused() {
             if let Some(st) = proc_stat(pid) {
                 let at_prompt = st.tpgid == st.pgrp && st.sleeping && !st.busy;
+                // DOGFIGHT_WATCH_LOG=FILE: one line per check, for diagnosing idle detection
+                if let Some(p) = std::env::var_os("DOGFIGHT_WATCH_LOG") {
+                    use std::io::Write;
+                    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(p) {
+                        let _ = writeln!(
+                            f,
+                            "{} pid={pid} tpgid={} pgrp={} sleeping={} busy={} at_prompt={at_prompt} idle_for={}s",
+                            now(),
+                            st.tpgid,
+                            st.pgrp,
+                            st.sleeping,
+                            st.busy,
+                            now().saturating_sub(atime(&tty).max(last_fire))
+                        );
+                    }
+                }
                 if at_prompt {
                     let since = now().saturating_sub(atime(&tty).max(last_fire));
                     if since >= idle {
