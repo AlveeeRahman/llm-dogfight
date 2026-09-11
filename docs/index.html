@@ -53,7 +53,7 @@
   p { margin: .7rem 0; }
   .sub { color: var(--sub); font-size: 1.05rem; }
   a { color: var(--accent); }
-  img { max-width:100%; border-radius:8px; border:1px solid var(--line); }
+  img { max-width:100%; height:auto; display:block; border-radius:8px; border:1px solid var(--line); }
   pre { background: var(--code); padding: .9rem 1rem; border-radius: 8px; overflow-x:auto; font-size:.85rem; line-height:1.5; }
   code { background: var(--code); padding:.1rem .3rem; border-radius:4px; font-size:.9em; }
   pre code { padding:0; background:none; }
@@ -104,7 +104,7 @@ dogfight ufo                      # no GPU? the built-in pilots, no models at al
   </table>
   <p>The doctrine bounds follow the guardrail idea of <a href="https://github.com/Zxy-MLlab/AutoSafe">AutoSafe</a>: the model chooses freely inside the bounds, and the bounds themselves are what evolves. The <a href="https://github.com/AlveeeRahman/llm-dogfight#rules-of-a-battle">README</a> has the full rules, the doctrine table and the algorithm.</p>
 
-  <img src="https://raw.githubusercontent.com/AlveeeRahman/llm-dogfight/main/eval/snapshots/hud.png" alt="The commanders' battle cries and lessons at the top of the screen" width="1600" height="300">
+  <img src="https://raw.githubusercontent.com/AlveeeRahman/llm-dogfight/main/eval/snapshots/hud.png" alt="The commanders' battle cries and lessons at the top of the screen" width="2400" height="224">
 
   <h2>Models</h2>
   <p>A catalogue of 23 ungated Hugging Face models from 0.6B to 14B parameters, or any model id you name with <code>--zorb</code> and <code>--krell</code>. The default pair, Qwen3-0.6B against SmolLM2-360M, is a 2.2 GB download and fits any CUDA card; <code>dogfight models</code> measures your GPU or unified memory and names the strongest pair it can hold. Matchups played through many full games:</p>
