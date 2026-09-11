@@ -49,47 +49,110 @@ the binary.
 Options for a battle: `--lessons on|off`, `--fps N`, `--seed N`, `--duration SECS`,
 `--perf FILE`. `dogfight --help` lists everything.
 
-## How a battle works
+## Recommended matchups
 
-**Rules.** Each team has 4 saucers on screen. A destroyed saucer is replaced 4 s later from a
-budget of 20 reinforcements per game; when a team has nothing in the air and nothing left to
-send, it loses the game. Ten seconds later the next game starts, and the loser fields an extra
-saucer. Score is kills plus cows abducted; games won are remembered per model pair. A game
-lasts about a minute and a half. Every kill, reinforcement, abduction and result is one line in
-`~/.local/state/dogfight/match.log`.
+Pairs the author played through many full games on an RTX 4000 Ada. Every one of them is a
+proper fight: both sides score, lead changes happen, and the models' habits show.
 
-Saucers fire one bolt at a time: the next shot comes 200 ms after the previous one has hit or
-faded, so a fight is a stream of single shots rather than volleys.
+```sh
+dogfight --zorb qwen3-0.6b    --krell smollm2-1.7b    # the defaults, 4.6 GB: Qwen's aggression vs SmolLM2's caution
+dogfight --zorb qwen3-0.6b    --krell smollm2-360m    # 2.2 GB, decisions in a tenth of a second, fast and messy
+dogfight --zorb qwen3-0.6b    --krell gemma3-1b       # 3.5 GB, the most even of the small pairs
+dogfight --zorb granite3.3-2b --krell qwen3-1.7b      # 9.2 GB, the smartest pair; needs a card above 8 GB or lm_quant = "8bit"
+```
 
-**Commanders.** About once a second each model receives a compact text description of the
-situation (its saucers with hit points, nearest enemy and nearest cow, the enemy's saucers,
-recent events, the enemy's last battle cry) and answers with one order per saucer:
-`attack E4`, `hunt`, `flee` or `abduct C1`. The orders are flown by the same steering code as
-the built-in pilots, so the fight stays smooth no matter how slow or confused a model is.
-When a team loses a saucer, its commander shouts a battle cry that shows in the HUD.
+Add `evolve` to any of them (`dogfight evolve --zorb ... --krell ...`) to let the tactics evolve.
 
-**Learning.** After every loss the commander is shown the post-mortem (who killed the saucer,
-from what range, what it was doing, how long it had been flying damaged, how outnumbered it
-was) and writes one rule to avoid that fate. Rules stay in its prompt for the rest of the
-session and persist on disk, so a pair of models keeps evolving across battles. Nothing is
-fine-tuned; this is in-context learning, which is what fits next to a game on an 8 GB card.
+## Rules of a battle
 
-**Doctrine.** Each team flies under a *doctrine*: six tactical parameters with hard bounds
-(when a damaged ship must flee, when fleeing is forbidden, how much of the fleet may retreat
-at once, how often to focus fire, and advice on when a cow is worth going for). It is spelled
-out in the model's prompt, and the flee rules are enforced on every order: small models
-otherwise drift into retreating with healthy ships, and both sides must play the same game.
-Abducting is never corrected. It is the model's own call, and it is the most telling one: a
-commander that leaves the fight for a cow when the enemy is far is reading the field and
-weighing points against risk; one that beams cows under fire is greedy; one that never goes
-for a cow at all is either cautious or simply not reading the openings the prompt spells out.
+1. **Fleet.** Each team has 4 saucers on screen at once. A destroyed saucer is replaced 4 s
+   later from a budget of 20 reinforcements per game; once the budget is spent it is a fight to
+   the death.
+2. **Game over.** A team loses the game when it has nothing in the air and nothing left to
+   send. Ten seconds later the next game starts; the loser fields one extra saucer (5 vs 4).
+3. **Score.** One point per enemy saucer destroyed and one per cow abducted. Games won, kills
+   and cows are remembered per model pair (`dogfight reset score` clears them).
+4. **Shooting.** One bolt in the air per saucer; the next shot comes 200 ms after the previous
+   one hits or fades (bolts fade after one second). No volleys.
+5. **Cows.** Ten cows graze between two barns. An abducted cow is replaced by one walking out
+   of the barn on the emptier side. Beaming takes two seconds of hovering; a hurt saucer under
+   fire breaks off.
+6. **Orders.** About once a second each model gets a text description of the situation and
+   answers with one order per saucer: `attack E4`, `hunt` (attack the nearest), `flee`, or
+   `abduct C1`. There is no idle order; anything else the model invents becomes `hunt`. A
+   saucer keeps its last order until a new one arrives, and an abduction in progress is seen
+   through unless the ship is in danger. The orders are flown by the same steering code as the
+   built-in pilots: lead pursuit, orbiting at range, jinking, ally separation.
+7. **Cries and lessons.** When a team loses a saucer its commander shouts a battle cry shown
+   in the HUD, and with lessons on (`lm_evolve`, default) it also gets the post-mortem and
+   writes one rule for the future. Lessons persist per model.
 
-**Evolve.** With `dogfight evolve`, a genetic algorithm scores each team's active doctrine over
-every game (kills minus losses plus half the cows, per minute) and breeds the next generation
-from the best ones, separately for the two teams and in parallel. The model explores tactics
-only inside a heuristic envelope, and the envelope is what evolves. It runs in Rust with no
-extra model calls, so it costs nothing; populations persist per team in
-`~/.local/state/dogfight/doctrine-*.txt` and `dogfight arena lessons` shows them.
+Every kill, reinforcement, abduction and result is one line in `~/.local/state/dogfight/match.log`.
+
+## Guardrails: the doctrine
+
+Small models drift. Left alone they retreat with healthy saucers, forget the objective, or
+follow a lesson off a cliff. So each team flies under a **doctrine**, six numbers with hard
+bounds:
+
+| parameter | bounds | meaning |
+|---|---|---|
+| `flee_hp` | 15–60 | a saucer below this hp with an enemy in laser range must flee |
+| `brave_hp` | 40–100 (≥ `flee_hp` + 10) | a saucer above this hp may not flee |
+| `courage` | 20–100 % | at most this share of the fleet may be fleeing at once |
+| `focus` | 0–100 % | probability that an attack order is redirected at the weakest enemy in range |
+| `abduct_dist` | 10–60 | advice: go for a cow when it is within this distance… |
+| `abduct_clear` | 0.1–0.6 × range | …and no enemy is closer than this |
+
+The doctrine is written into the model's prompt, and after every reply the flee and focus rules
+are checked against each order: a violating order is corrected on the spot, and the model is
+told how many of its orders were corrected. Abduction is deliberately **never** corrected. What
+a commander does with cows is the most telling thing about it, so that decision stays its own.
+Without `evolve`, every battle uses the default doctrine (flee below 35, never above 70, half
+the fleet, 50 % focus), the same for both teams.
+
+**How AutoSafe was used.** The guardrail design follows
+[AutoSafe](https://github.com/Zxy-MLlab/AutoSafe) (Zhang et al., *Automating Safety Enhancement
+for LLM-based Agents with Synthetic Risk Scenarios*, 2025). AutoSafe makes tool-using agents
+safer with four pieces: an explicit threat model of how unsafe behaviour emerges from
+instructions, context and actions; automatic simulation of risky trajectories; self-reflection
+that turns a risky trajectory into a safe action; and training on the result. LLM Dogfight
+maps those onto a game and drops the training:
+
+| AutoSafe | here |
+|---|---|
+| threat model | the doctrine bounds: what counts as a losing order (fleeing healthy, mass retreat, beaming under fire) is defined up front, in numbers |
+| risky-trajectory simulation | the battle itself; every destroyed saucer is a risky trajectory, logged with its full context (killer, range, order, time flown damaged, how outnumbered) |
+| reflection into safe actions | the post-mortem prompt after each loss and each lost game, whose one-line answer becomes a lesson in the model's prompt |
+| safe-action enforcement | `apply_doctrine`: an order outside the bounds is replaced before it is flown |
+| training | none; the models are never fine-tuned. What improves instead is the bound set, by the genetic algorithm below |
+
+The models stay small and untouched, and the safety envelope, not the model, is what learns.
+
+## The genetic algorithm (`dogfight evolve`)
+
+One evolver, both teams in parallel, entirely in Rust, no extra model calls.
+
+- **Population.** Six doctrines per team: the default plus five drawn uniformly inside the
+  bounds. Persisted in `~/.local/state/dogfight/doctrine-ZORB.txt` and `doctrine-KRELL.txt`,
+  so evolution continues across sessions; `dogfight arena lessons` prints them and
+  `dogfight reset model` wipes them.
+- **Evaluation.** One doctrine is active per team at a time. Its window closes after 90 s of
+  play or when a game ends. Fitness is (kills − losses + ½ cows) gained during the window,
+  plus 6 for winning the game or minus 6 for losing it, divided by the window's minutes. A
+  doctrine that is evaluated again keeps a running mean, so one lucky window does not decide.
+- **Selection and breeding.** When all six have a score, the population is sorted; the top
+  three survive, the bottom three are replaced by children: uniform crossover of two random
+  survivors, then Gaussian mutation of each gene with 60 % probability and a standard
+  deviation of 12 % of that gene's range, clamped to the bounds (`brave_hp` is kept at least
+  10 above `flee_hp`). Survivors are re-evaluated in the next generation; the champion plays
+  first so a new session starts from the best-known doctrine.
+- **Feedback to the model.** The active doctrine, its generation and the number of corrected
+  orders are in every prompt, and the HUD shows both teams' doctrines and generation.
+
+Each team evolves on its own record: the two populations are separate files with separate
+fitness histories, scored on the same clock, so a doctrine that works for a cautious model is
+not imposed on an aggressive one.
 
 ## Models
 
