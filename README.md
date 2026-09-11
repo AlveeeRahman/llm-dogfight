@@ -8,6 +8,7 @@
 [![models on Hugging Face](https://github.com/AlveeeRahman/llm-dogfight/actions/workflows/models.yml/badge.svg)](https://github.com/AlveeeRahman/llm-dogfight/actions/workflows/models.yml)
 [![release](https://img.shields.io/github/v/release/AlveeeRahman/llm-dogfight?display_name=tag)](https://github.com/AlveeeRahman/llm-dogfight/releases)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![on Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Space-yellow)](https://huggingface.co/spaces/AlveRahman/llm-dogfight)
 
 ![LLM Dogfight: two saucer teams over a sleeping city](eval/snapshots/ufo.png)
 
@@ -26,9 +27,9 @@ learn from every saucer they lose. Any key ends it.
 - **Scales with your machine.** The defaults need 2.2 GB and fit any CUDA card; `dogfight models` measures
   your GPU or unified memory and names the strongest pair it can hold, up to 14B on big cards
   and Macs.
-- **Checked continuously.** Every push runs lint, audit, benchmark and terminal harness on
-  Linux and macOS; a weekly job talks to Hugging Face to confirm every catalogue model is
-  still public and loads.
+- **Delivered continuously.** Every push runs lint, audit, benchmark and terminal harness on
+  Linux and macOS; every release ships binaries to GitHub and mirrors them to a Hugging Face
+  Space; a weekly job confirms every catalogue model is still public on Hugging Face.
 
 ## Quick start
 
@@ -281,6 +282,7 @@ Details and the threat model: [SECURITY.md](SECURITY.md).
 | **ci** | every push and pull request | rustfmt, clippy with every lint as an error, `cargo audit`, locked build, frame benchmark against locked thresholds, the pty harness across bash, zsh and fish, the sidecar tests, `bandit` and `ruff`; the same on macOS |
 | **ci › release** | every `v*` tag | builds `dogfight` for Linux x86_64 and macOS Apple silicon, packages tarballs with SHA-256 sums and publishes a GitHub Release with generated notes |
 | **models** | weekly, and on demand | pulls the default pair from Hugging Face on a clean runner and checks that every catalogue model is public and loadable, using a Hugging Face token stored as a repository secret |
+| **publish to hugging face** | every published release, and on demand | mirrors the README as the card of the [Hugging Face Space](https://huggingface.co/spaces/AlveRahman/llm-dogfight) and uploads the release tarballs there under `releases/<tag>/`, so the tool is delivered on both GitHub and Hugging Face |
 
 Run the whole gate locally with `scripts/qa.sh --full`.
 

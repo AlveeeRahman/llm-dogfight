@@ -22,7 +22,7 @@ jobs:
       - run: python3 eval/check_bench.py bench.jsonl
       - run: python3 eval/test_terminal.py          # 18 pty checks across bash, zsh and fish
       - run: python3 eval/test_arena.py             # sidecar prompt/parse/lessons, no GPU needed
-      - run: pip install --quiet bandit ruff && bandit -q -r agents/ && ruff check agents/ eval/test_arena.py
+      - run: pip install --quiet bandit ruff && bandit -q -r agents/ scripts/ && ruff check agents/ eval/test_arena.py scripts/
 
   macos:
     name: build and GPU-free checks (Apple silicon)

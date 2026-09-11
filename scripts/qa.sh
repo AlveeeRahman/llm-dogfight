@@ -12,7 +12,7 @@ step "build (locked)"; cargo build --release --locked
 step "bench";          ./target/release/dogfight bench --size 200x55 | python3 eval/check_bench.py /dev/stdin
 step "sidecar tests";  python3 eval/test_arena.py
 step "bandit";         python3 -m bandit -q -r agents/ || bandit -q -r agents/
-step "ruff";           python3 -m ruff check agents/ eval/test_arena.py || ruff check agents/ eval/test_arena.py
+step "ruff";           python3 -m ruff check agents/ eval/test_arena.py scripts/ || ruff check agents/ eval/test_arena.py scripts/
 if [[ "${1:-}" == "--full" ]]; then
   step "pty harness";  PATH="$PWD/target/release:$PATH" python3 eval/test_terminal.py
   step "macOS check";  rustup target list --installed | grep -q aarch64-apple-darwin && cargo check --release --target aarch64-apple-darwin
