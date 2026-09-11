@@ -7,8 +7,8 @@ your machine. This page says what it does, what it does not do, and how it is ch
 
 - **Touches:** your terminal (raw mode, alternate screen; restored on every exit path including
   SIGTERM/SIGHUP and panics), `~/.config/dogfight`, `~/.local/state/dogfight`,
-  `~/.local/share/dogfight`, `${XDG_RUNTIME_DIR:-/tmp}/dogfight-$UID` (mode 0700), and your shell
-  rc file only through `dogfight install` (marked block, timestamped backup) / `dogfight uninstall`.
+  `~/.local/share/dogfight` and `${XDG_RUNTIME_DIR:-/tmp}/dogfight-$UID` (mode 0700). It never
+  edits your shell configuration.
 - **Never:** opens a network connection, reads files outside those paths, escalates privileges,
   or runs anything but the sidecar it wrote itself (`arena.py`, rewritten from the embedded copy
   on every start, so a modified copy is overwritten).
@@ -19,9 +19,9 @@ your machine. This page says what it does, what it does not do, and how it is ch
   (Hugging Face models through `huggingface_hub`). Pin a model to a revision with
   `--zorb Qwen/Qwen3-0.6B@<commit>` or `lm_model_a = "…@<commit>"` if you need reproducible weights.
   It runs at lower CPU priority and is killed when the battle ends.
-- **`dogfight remove`** deletes exactly the paths above, the rc-file backups it made, the model
-  directories it downloaded (catalogue models and the configured pair only) and the binary;
-  nothing else. `--keep-models` keeps the weights.
+- **`dogfight remove`** deletes exactly the paths above, the model directories it downloaded
+  (catalogue models and the configured pair only) and the binary; nothing else. `--keep-models`
+  keeps the weights.
 
 ## What is enforced on every change (CI gates)
 
@@ -34,7 +34,7 @@ your machine. This page says what it does, what it does not do, and how it is ch
 | integer overflow | `overflow-checks = true` in release: overflow aborts (after restoring the terminal) instead of wrapping silently |
 | Python security lint | `bandit -r agents/` |
 | Python lint | `ruff check agents/ eval/test_arena.py` |
-| behaviour | bench against `eval/thresholds.toml`, pty harness (`eval/test_terminal.py`), sidecar tests (`eval/test_arena.py`) |
+| behaviour | bench against `eval/thresholds.toml`, pty harness (`eval/test_terminal.py`: start, key exit, screen and termios restore, SIGTERM), sidecar tests (`eval/test_arena.py`) |
 
 Run all of it locally with `scripts/qa.sh`.
 
@@ -45,10 +45,9 @@ Run all of it locally with `scripts/qa.sh`.
 - A malicious model repository: the sidecar loads weights with `transformers` / `mlx-lm`, which
   use safetensors (no pickle execution) for the catalogued models; pin revisions for stronger
   guarantees. dogfight never sets `trust_remote_code`.
-- Another local user: state and runtime dirs are per user; the runtime dir is 0700; signals are
-  only sent to processes verified to be our own watcher or the shell that started it.
-- A crashed or wedged terminal: the watcher only fires when the shell is at its prompt; the saver
-  swallows the wake key and restores termios; SIGPIPE cannot wedge output.
+- Another local user: state and runtime dirs are per user; the runtime dir is 0700.
+- A crashed or wedged terminal: the exit key is swallowed and termios restored on every exit
+  path; SIGPIPE cannot wedge output.
 
 ## Reporting
 

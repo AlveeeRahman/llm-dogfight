@@ -13,7 +13,6 @@ bytes_p95_kb = 110.0
 
 [footprint]
 binary_mb = 4.0             # stripped release binary
-watcher_rss_mb = 4.0        # resident per open terminal, forever — must be tiny
 saver_rss_mb = 20.0         # while animating
 import_peak_rss_mb = 4096   # image->animation ceiling set by the user (< 4 GB)
 
@@ -21,7 +20,3 @@ import_peak_rss_mb = 4096   # image->animation ceiling set by the user (< 4 GB)
 exit_after_key_ms = 300     # keypress -> prompt back
 restore_termios = true      # `stty -g` identical before and after
 restore_screen = true       # alt-screen left, cursor shown, SGR reset
-idle_fires_at_prompt = true # bash, zsh, fish
-idle_silent_during_cmd = true
-partial_line_survives = true
-wake_key_not_leaked = true

@@ -93,9 +93,23 @@ class Commander:
 class TorchBackend:
     name = "cuda"
 
-    def __init__(self, vram_gb, quant):
+    def __init__(self, vram_gb, quant, cpu=False):
         import torch
         self.torch = torch
+        if cpu:
+            # no GPU: both models on the CPU in float32 (small models only; a few tokens per
+            # second on a laptop, enough for one order per saucer every few seconds)
+            self.name = "cpu"
+            self.ngpu = 0
+            self.devs = [torch.device("cpu"), torch.device("cpu")]
+            self.dev = self.devs[0]
+            self.total_gb = 0.0
+            self.cap_gb = 0.0
+            self.dtype = torch.float32
+            self.quant = "none"
+            self._slot = 0
+            torch.set_num_threads(max(1, os.cpu_count() or 1))
+            return
         if not torch.cuda.is_available():
             if sys.platform == "darwin":
                 raise RuntimeError("no CUDA on macOS: use `dogfight run mlx ufo-battle` (pip install mlx-lm)")
@@ -152,9 +166,13 @@ class TorchBackend:
         return c.tok.decode(out[0, n_in:], skip_special_tokens=True), int(out.shape[1] - n_in)
 
     def mem_gb(self):
+        if self.ngpu == 0:
+            return 0.0
         return sum(self.torch.cuda.max_memory_reserved(i) for i in range(min(self.ngpu, 2))) / 2**30
 
     def device_desc(self):
+        if self.ngpu == 0:
+            return f"CPU, {os.cpu_count()} threads, float32"
         p = self.torch.cuda.get_device_properties(0)
         gpus = f"{p.name} x{self.ngpu} (one model per GPU)" if self.ngpu >= 2 else p.name
         return f"{gpus}, {self.total_gb:.1f} GB, cap {self.cap_gb:.1f} GB per GPU, dtype {str(self.dtype).split('.')[-1]}"
@@ -229,6 +247,8 @@ def pick_backend(name):
 
 def make_backend(name, vram_gb, quant):
     try:
+        if name == "cpu":
+            return TorchBackend(vram_gb, quant, cpu=True)
         return (MlxBackend if name == "mlx" else TorchBackend)(vram_gb, quant)
     except ImportError as e:
         if name == "mlx":
@@ -446,6 +466,8 @@ def check(args):
             import torch
             import transformers
             print(f"torch       {torch.__version__}  cuda={torch.cuda.is_available()}  transformers {transformers.__version__}")
+            if name == "cpu":
+                print(f"cpu         {os.cpu_count()} threads; small models only, a few tokens per second")
             if torch.cuda.is_available():
                 p = torch.cuda.get_device_properties(0)
                 free, total = torch.cuda.mem_get_info()
@@ -570,7 +592,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model-a", default="Qwen/Qwen3-0.6B")
     ap.add_argument("--model-b", default="HuggingFaceTB/SmolLM2-360M-Instruct")
-    ap.add_argument("--backend", default="cuda", choices=["auto", "cuda", "mlx"])
+    ap.add_argument("--backend", default="cuda", choices=["auto", "cuda", "mlx", "cpu"])
     ap.add_argument("--vram-gb", type=float, default=0.0, help="CUDA memory cap for this process (both models); 0 = card memory - 2 GB")
     ap.add_argument("--quant", default="none", choices=["none", "8bit", "4bit"], help="bitsandbytes quantization (cuda)")
     ap.add_argument("--evolve", dest="evolve", action="store_true", default=True, help="learn a lesson from every loss (default)")

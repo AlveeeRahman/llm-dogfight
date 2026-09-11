@@ -10,7 +10,7 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![on Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Space-yellow)](https://huggingface.co/spaces/AlveRahman/llm-dogfight)
 
-![LLM Dogfight: two saucer teams over a sleeping city](eval/snapshots/ufo.png)
+![LLM Dogfight: a live battle between two local models](eval/snapshots/battle.png)
 
 </div>
 
@@ -18,12 +18,15 @@ Type `dogfight`. Team **ZORB** and team **KRELL**, each commanded by a different
 start fighting over a sleeping city: they chase, retreat, steal cows, shout at each other, and
 learn from every saucer they lose. Any key ends it.
 
+![The commanders talk: battle cries and lessons in the HUD](eval/snapshots/hud.png)
+
 - **Runs anywhere text runs.** Plain truecolor text (half-blocks and braille), no graphics
   protocol: the default Ubuntu terminal, GNOME Terminal, Ptyxis, kitty, iTerm2, Ghostty, on
   Linux and macOS.
 - **Small and safe.** A 0.8 MB Rust binary with one dependency; the models live in a Python
   sidecar on CUDA or Apple MLX. Everything a model says is filtered before it reaches your
-  terminal. `dogfight remove` leaves nothing behind.
+  terminal, and any key gives the terminal back exactly as it was. `dogfight remove` leaves
+  nothing behind.
 - **Scales with your machine.** The defaults need 2.2 GB and fit any CUDA card; `dogfight models` measures
   your GPU or unified memory and names the strongest pair it can hold, up to 14B on big cards
   and Macs.
@@ -61,7 +64,6 @@ No GPU? `dogfight ufo` runs the same fight with the built-in pilots and needs no
 | `dogfight arena pull` | download the models ahead of time |
 | `dogfight arena lessons` | what each commander has learned; the evolved doctrines |
 | `dogfight reset model \| score \| all` | forget the lessons, the games won, or both |
-| `dogfight install` / `dogfight uninstall` | screensaver mode: play whenever your shell sits idle |
 | `dogfight remove` | delete everything the tool put on the machine, including itself |
 
 Battle options: `--lessons on|off`, `--fps N`, `--seed N`, `--duration SECS`, `--perf FILE`.
@@ -108,6 +110,23 @@ balanced pair it can hold.
 
 Sizes are bf16 safetensors from the Hugging Face API, September 2026. Any Hugging Face model
 with a chat template and safetensors weights works by id; append `@<commit>` to pin the weights.
+
+### Models without guardrails
+
+The catalogue models are aligned instruct models; they never refuse an order, but their battle
+cries stay polite. "Abliterated" builds have the refusal behaviour removed, and the same ids work:
+
+```sh
+dogfight --zorb mlabonne/gemma-3-1b-it-abliterated --krell Goekdeniz-Guelmez/Josiefied-Qwen3-1.7B-abliterated-v1   # 5.4 GB
+```
+
+![Abliterated commanders and their language](eval/snapshots/abliterated.png)
+
+Everything a model says is still filtered to printable ASCII before it reaches the terminal,
+so the worst it can do is be rude. These repositories are ungated too, but Hugging Face
+throttles anonymous downloads; a free account and a read token (`hf auth login`, or
+`export HF_TOKEN=hf_...`) lift the limit, and the tool picks the token up automatically. A
+download that hits the limit says so and retries.
 
 ### Bigger machines
 
@@ -215,21 +234,6 @@ One evolver, both teams in parallel, entirely in Rust, no extra model calls.
 Each team evolves on its own record: two population files, two fitness histories, scored on
 the same clock, so a doctrine that suits a cautious model is never imposed on an aggressive one.
 
-## Screensaver mode
-
-```sh
-dogfight install                 # bash, zsh or fish: play when the prompt has been idle
-dogfight pause 60                # quiet for an hour, e.g. during a screen share
-dogfight uninstall               # remove the hook again
-```
-
-`install` appends a marked block to your shell rc file (with a timestamped backup). A tiny
-watcher (about 1 MB) sleeps in each shell and wakes the saver after `idle_seconds`; it only
-fires when the shell is sitting at its prompt, so builds and editors are never interrupted.
-Any key restores your prompt with the half-typed line intact. The screensaver runs the
-built-in pilots by default (`scenes = ["ufo"]`); `scenes = ["ufo-battle"]` lets the models play
-while you are away.
-
 ## Configuration
 
 `dogfight config` prints the default file; copy it to `~/.config/dogfight/config.toml` and edit.
@@ -245,7 +249,7 @@ while you are away.
 | `lm_max_alive`, `lm_regens` | 4, 20 | saucers on screen; reinforcements per game |
 | `lm_think_seconds` | 1.0 | minimum pause between a team's orders |
 | `lm_python` | `python3` | the interpreter that has torch or mlx-lm |
-| `idle_seconds`, `fps`, `scenes` | 300, 30, `["ufo"]` | screensaver mode |
+| `fps`, `unfocused_fps` | 30, 12 | frame rate, and while the terminal window is unfocused |
 | `tolerance` | 5 | colour change ignored between frames (fewer bytes) |
 
 ## Performance
@@ -279,7 +283,7 @@ Details and the threat model: [SECURITY.md](SECURITY.md).
 
 | workflow | when | what |
 |---|---|---|
-| **ci** | every push and pull request | rustfmt, clippy with every lint as an error, `cargo audit`, locked build, frame benchmark against locked thresholds, the pty harness across bash, zsh and fish, the sidecar tests, `bandit` and `ruff`; the same on macOS |
+| **ci** | every push and pull request | rustfmt, clippy with every lint as an error, `cargo audit`, locked build, frame benchmark against locked thresholds, a pty harness (start, key exit, screen and termios restore, SIGTERM), the sidecar tests, `bandit` and `ruff`; the same on macOS |
 | **ci › release** | every `v*` tag | builds `dogfight` for Linux x86_64 and macOS Apple silicon, packages tarballs with SHA-256 sums and publishes a GitHub Release with generated notes |
 | **models** | weekly, and on demand | pulls the default pair from Hugging Face on a clean runner and checks that every catalogue model is public and loadable, using a Hugging Face token stored as a repository secret |
 | **publish to hugging face** | every published release, and on demand | mirrors the README as the card of the [Hugging Face Space](https://huggingface.co/spaces/AlveRahman/llm-dogfight) and uploads the release tarballs there under `releases/<tag>/`, so the tool is delivered on both GitHub and Hugging Face |

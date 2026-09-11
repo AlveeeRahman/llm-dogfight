@@ -4,12 +4,8 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct Config {
-    pub idle_seconds: u64,
     pub fps: u32,
     pub unfocused_fps: u32,
-    pub scenes: Vec<String>,
-    pub rotate_minutes: f32,
-    pub max_instances: u32,
     pub color: String,
     pub tolerance: i32,
     /// "builtin" (heuristic pilots, no GPU) or "lm" (two language models via agents/arena.py)
@@ -34,19 +30,9 @@ pub struct Config {
 
 pub const DEFAULT_TOML: &str = r#"# dogfight — ~/.config/dogfight/config.toml
 
-# Seconds your shell must sit idle at the prompt before the screensaver starts.
-idle_seconds = 300
-
 # Frames per second while animating, and while the window is unfocused.
 fps = 30
 unfocused_fps = 12
-
-# Idle-screensaver mode only (`dogfight install`): "ufo" (built-in pilots, no GPU) and/or "ufo-battle".
-scenes = ["ufo"]
-rotate_minutes = 4
-
-# At most this many terminals animate at once (others stay quiet).
-max_instances = 3
 
 # "auto", "truecolor" or "256"
 color = "auto"
@@ -62,7 +48,7 @@ tolerance = 5
 ufo_pilots = "builtin"
 
 # Language-model commanders. Defaults are the smallest pair that plays well (2.2 GB together).
-lm_backend = "auto"                                 # auto = cuda, or mlx on Apple silicon; or `dogfight mlx` / `dogfight cuda`
+lm_backend = "auto"                                 # auto = cuda, or mlx on Apple silicon; cpu = no GPU (tiny models); or `dogfight cuda|mlx|cpu`
 lm_model_a = "Qwen/Qwen3-0.6B"                      # team ZORB
 lm_model_b = "HuggingFaceTB/SmolLM2-360M-Instruct"  # team KRELL
 lm_vram_gb = "auto"                                 # CUDA memory cap for the sidecar: auto = your card's memory
@@ -81,12 +67,8 @@ lm_regens = 20                                      # reinforcements per team pe
 impl Default for Config {
     fn default() -> Self {
         Config {
-            idle_seconds: 300,
             fps: 30,
             unfocused_fps: 12,
-            scenes: vec!["ufo".into()],
-            rotate_minutes: 4.0,
-            max_instances: 3,
             color: "auto".into(),
             tolerance: 5,
             ufo_pilots: "builtin".into(),
@@ -120,11 +102,8 @@ impl Config {
             let Some((k, v)) = line.split_once('=') else { continue };
             let (k, v) = (k.trim(), v.trim());
             match k {
-                "idle_seconds" => set_num(&mut self.idle_seconds, v),
                 "fps" => set_num(&mut self.fps, v),
                 "unfocused_fps" => set_num(&mut self.unfocused_fps, v),
-                "rotate_minutes" => set_num(&mut self.rotate_minutes, v),
-                "max_instances" => set_num(&mut self.max_instances, v),
                 "tolerance" => set_num(&mut self.tolerance, v),
                 "lm_vram_gb" => {
                     if unquote(v).eq_ignore_ascii_case("auto") {
@@ -145,18 +124,11 @@ impl Config {
                 "lm_genetic" => self.lm_genetic = !matches!(unquote(v).to_lowercase().as_str(), "false" | "0" | "no" | "off"),
                 "lm_regens" => set_num(&mut self.lm_regens, v),
                 "lm_max_alive" => set_num(&mut self.lm_max_alive, v),
-                "scenes" => {
-                    let list: Vec<String> = v.trim_start_matches('[').trim_end_matches(']').split(',').map(unquote).filter(|s| !s.is_empty()).collect();
-                    if !list.is_empty() {
-                        self.scenes = list;
-                    }
-                }
-                _ => {} // unknown keys (including v0.1's garden/meadow keys) are ignored
+                _ => {} // unknown keys (older versions' screensaver keys among them) are ignored
             }
         }
         self.fps = self.fps.clamp(1, 120);
         self.unfocused_fps = self.unfocused_fps.clamp(1, 120);
-        self.idle_seconds = self.idle_seconds.max(5);
         self.tolerance = self.tolerance.clamp(0, 32);
         self.lm_vram_gb = if self.lm_vram_gb <= 0.0 { 0.0 } else { self.lm_vram_gb.clamp(1.0, 512.0) };
         self.lm_max_alive = self.lm_max_alive.clamp(1, 4);
@@ -164,7 +136,7 @@ impl Config {
         if !matches!(self.ufo_pilots.as_str(), "builtin" | "lm") {
             self.ufo_pilots = "builtin".into();
         }
-        if !matches!(self.lm_backend.as_str(), "auto" | "cuda" | "mlx") {
+        if !matches!(self.lm_backend.as_str(), "auto" | "cuda" | "mlx" | "cpu") {
             self.lm_backend = "auto".into();
         }
         if !matches!(self.lm_quant.as_str(), "none" | "8bit" | "4bit") {

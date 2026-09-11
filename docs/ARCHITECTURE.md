@@ -10,14 +10,13 @@ under `eval/` are the measuring instruments and are not edited to make something
 
 ## 1. What it is and why it is shaped this way
 
-A screensaver *inside* the terminal. When the interactive shell has been idle at its prompt for
-`idle_seconds`, the terminal is taken over by an animated scene; any key restores the prompt.
+A game *inside* the terminal: `dogfight` takes the terminal over with an animated battle, and any
+key gives it back exactly as it was.
 
 Design drivers, in priority order:
 1. **Target = VTE** (GNOME Terminal on Ubuntu ≤ 25.04, Ptyxis on 25.10+). VTE stable builds ship
    without sixel and without the kitty graphics protocol, so there is no pixel path: everything is
    character cells with 24-bit colour. The bottleneck is how many bytes the terminal must parse.
-2. **Lightweight** (explicit user requirement) → Rust, `libc` only; the watcher that lives in every
    shell is ~1 MB RSS and sleeps until its deadline. The language models live in a **separate
    Python process** that exists only while `ufo-battle` is on screen; the binary has no ML code.
 3. **`ufo-battle` fits an 8 GB CUDA card** (the user's 20 GB card is explicitly not the yardstick),
@@ -31,38 +30,12 @@ importer. The user asked to keep only `ufo` and make it LM-controlled; the other
 
 ## 2. Runtime architecture
 
-```
- ~/.bashrc  ──eval "$(dogfight init bash)"──►  trap __dogfight_alrm ALRM
-                                              dogfight watch --pid $$ --tty "$(tty)" --daemon
-                                                    │
-     every ≤10 s: at prompt?  Linux: /proc/<shell>/stat (tpgid == pgrp && state 'S')
-                              macOS: ps -o pgid,tpgid,stat -p <shell>
-                  stat(tty).atime → idle ≥ idle_seconds?
-                                                    │ yes
-     write $XDG_RUNTIME_DIR/dogfight-$UID/fire-<pid>  then kill(shell, SIGALRM)
-                                                    ▼
- shell runs trap → dogfight run --idle-trigger <pid>
-     claim_trigger(): marker must exist and be ≤ 5 s old (else exit 0 silently)
-     acquire_slot(): flock on slot-0..N (max_instances) (else exit 0)
-     Term::enter(): raw mode, alt screen, hide cursor, no autowrap, focus reports
-     loop: update(dt) → render(canvas) → encode(diff) → write → poll(stdin, until next frame)
-     any key → Term::leave(): tcflush input, restore sequence, restore termios
- bash trap then runs `kill -WINCH $$` → readline repaints the prompt line
-```
-
-Why each piece exists:
-- **SIGALRM, not USR1**: measured in a pty against bash 5.2.21: USR1/USR2 traps are deferred
-  while readline waits for input; WINCH and ALRM run immediately; INT runs but wipes the line.
-  zsh 5.9 (`TRAPALRM`) and fish 3.7 (`--on-signal SIGALRM`) also work.
-- **Marker file**: makes a late or foreign ALRM (e.g. zsh `TMOUT`) a no-op.
-- **tpgid == pgrp**: if a foreground job runs, the terminal's foreground group isn't the shell's,
-  so the watcher stays silent during `vim`, builds, etc.
-- **`--tty` from the snippet**: `/proc/<pid>/fd/0` is Linux-only; the shell knows its tty.
-  Without `--tty` the Linux fallback still reads /proc.
-- **tty atime**: updated when the shell reads keystrokes; kernel granularity 8 s on Linux.
-- **One watcher per shell**: `runtime_dir/watch-<pid>` pidfile; a new watcher for the same shell
-  SIGTERMs the old one. `uninstall` stops watchers via the pidfiles (+ a /proc sweep on Linux).
-- **Instance slots**: at most `max_instances` terminals animate at once (flock, auto-released).
+`dogfight` opens `/dev/tty`, enters raw mode and the alternate screen, and runs the frame loop
+(`app::run`): update the scene, render it to a cell canvas, diff-encode it, write it, then wait
+for the next frame while polling stdin. Any key, SIGTERM/INT/HUP/QUIT, or `--duration` ends the
+loop; `Term::leave` restores the screen and termios on every path, including panics. In
+`ufo-battle` the scene owns an `Arena` (src/arena.rs): a Python sidecar that runs the two models
+and talks a line protocol over pipes.
 
 ## 3. Rendering model
 
@@ -81,19 +54,16 @@ cursor and SGR state, truecolor or 256-colour, wraps frames in DEC 2026 synchron
 
 `Term` (src/term.rs): opens `/dev/tty` directly; restore happens in `leave()`, in `Drop`, in the
 panic hook, and on SIGTERM/INT/HUP/QUIT. `app::run` (src/app.rs) paces frames, applies the
-`--pilots`/backend/evolve overrides to a cloned config, and rotates scenes (only relevant if the
-config lists both `ufo` and `ufo-battle`).
+`--pilots`/backend/evolve overrides to a cloned config.
 
 ## 4. Module map
 
 | file | role |
 |---|---|
-| `src/main.rs` | CLI (hand-rolled parser): `dogfight [cuda|mlx|evolve|ufo]`, `run ...` long form, `arena check|pull|lessons`, `reset`, `remove`, `bench`, `snapshot`, install/uninstall/pause/status |
-| `src/app.rs` | the screensaver loop |
+| `src/main.rs` | CLI (hand-rolled parser): `dogfight [cuda|mlx|evolve|ufo]`, `run ...` long form, `arena check|pull|lessons`, `reset`, `remove`, `bench`, `snapshot`, `status` |
+| `src/app.rs` | the battle loop: frame pacing, lag guard, perf log, `--shot` |
 | `src/term.rs` | raw mode, signals, restore guarantees, input |
 | `src/canvas.rs`, `src/encode.rs` | framebuffer + AA primitives; diff encoder |
-| `src/idle.rs` | watcher daemon (Linux /proc, macOS `ps`), trigger claim, slots, pause/resume |
-| `src/shell.rs` | bash/zsh/fish snippets, install/uninstall with backup + marked block |
 | `src/config.rs` | TOML-subset parser (no deps), `DEFAULT_TOML`, XDG paths |
 | `src/arena.rs` | sidecar link: spawn, reader thread, line protocol parser, `Order` enum, lessons dir |
 | `src/scenes/mod.rs` | **locked** `Scene` trait, `make()`, `NAMES`, shared `Starfield` |
@@ -200,7 +170,7 @@ keys at `mlx-community/*-4bit` repos.
 ## 7. File formats (on users' disks — stay backward compatible)
 
 **Config** `~/.config/dogfight/config.toml`: `key = value` lines; unknown keys ignored (v0.1's
-`garden_speed`, `day_cycle_seconds`, `character` are silently accepted). Keys: `idle_seconds`,
+older screensaver keys are silently accepted). Keys:
 `fps`, `unfocused_fps`, `scenes`, `rotate_minutes`, `max_instances`, `color`, `tolerance`,
 `ufo_pilots`, `lm_backend`, `lm_model_a`, `lm_model_b`, `lm_vram_gb`, `lm_quant`, `lm_python`,
 `lm_think_seconds`, `lm_evolve`.
@@ -221,13 +191,11 @@ keys at `mlx-community/*-4bit` repos.
 |---|---|
 | `dogfight bench [--scene ufo] [--size 200x55] [--frames 600] [--seed 42]` | JSON: frame mean/p95/max ms, bytes mean/p95 KB, first-frame KB, peak RSS |
 | `eval/check_bench.py` | compares bench JSON to `eval/thresholds.toml` |
-| `eval/test_terminal.py` | 18 pty checks (bash/zsh/fish): saver starts; exit ≤ 300 ms; restore screen/termios; restore after SIGTERM; silent during a command; fires at prompt; partial line survives; wake key not leaked; watcher RSS ≤ 4 MB |
 | `eval/test_arena.py` | sidecar prompt/parse/lessons/backend selection, no GPU |
 | `dogfight arena check --load` | the GPU side: loads both models, times a decision and a reflection, prints peak memory |
 | `dogfight snapshot` + `eval/ansi2png.py` | deterministic frame → PNG for visual review |
 
 Results (200×55, seed 42): ufo mean 0.34 ms, p95 0.36 ms, 30.2 KB/frame mean,
-42.8 KB p95 (limits 4 ms / 8 ms / 45 KB / 110 KB). Binary 0.69 MB (≤ 4), watcher 1.05 MB RSS
 (≤ 4). pty harness: 14/14 bash checks pass here; zsh and fish are not installed on this machine
 (the 4 shell-specific checks could not run — not a dogfight failure). CI runs all three shells.
 
@@ -245,30 +213,26 @@ gap_max, CPU share, guard events) and is the first thing to look at for any lag 
 
 ## 9. Security and code-quality posture
 
-Why Rust: the watcher lives in every shell for hours and the saver seizes the terminal; a
 crash, leak or escape-sequence bug would be felt immediately. What is enforced:
 
 | area | mechanism |
 |---|---|
 | dependencies | one crate (`libc`); `cargo audit` in CI |
 | lints | `cargo clippy --release -- -D warnings` (with `undocumented_unsafe_blocks`), `cargo fmt --check`, 0 build warnings; `overflow-checks = true` in release; `bandit` + `ruff` on the sidecar |
-| `unsafe` | 25 sites, each with a `// SAFETY:` comment, all thin wrappers over single libc calls: termios/ioctl/poll/read/write (term.rs), sigaction/signal (term.rs, main.rs), fork/setsid/dup2/kill/flock (idle.rs), getuid/chmod (config.rs). No raw pointer arithmetic, no `transmute`, no `static mut`. |
+| `unsafe` | 17 sites, each with a `// SAFETY:` comment, all thin wrappers over single libc calls: termios/ioctl/poll/read/write (term.rs), sigaction/signal (term.rs, main.rs), getuid/chmod (config.rs). No raw pointer arithmetic, no `transmute`, no `static mut`. |
 | model output | `arena::sanitize` (cries), `Msg::Lesson` filter and the sidecar's `SAY_OK` regex allow printable ASCII only, so model text can never carry an escape sequence into the terminal, the HUD or a file |
 | protocol | fixed line protocol parsed by hand (`arena::parse`); unknown lines are dropped; numbers are range-checked (team < 2) |
 | files | XDG paths only; runtime dir `0700`; doctrine/score files parse numerically; the sidecar copy is rewritten from the embedded source on every start (a tampered copy is overwritten) |
 | network | none in the binary; the Python side downloads models through `huggingface_hub` |
 | terminal | restore on `leave()`, `Drop`, panic hook, SIGTERM/INT/HUP/QUIT; `panic = "abort"` after the hook; SIGPIPE default so a closed pipe cannot wedge output |
-| removal | `dogfight remove` deletes exactly the hook, watchers, config/state/data/runtime dirs and the binary (`--models` for the HF cache); verified in a fake HOME |
 
 ## 10. Known issues and backlog
 
 Known, accepted:
 - bash: cursor at column 0 after waking until the first keystroke (line content correct).
-- ±8 s idle timing (kernel atime granularity).
 - The commanders are tiny: they drop ships from their reply (those keep their previous order),
   answer `DEPLOY: 0` with nothing in the air (the 25 s guard covers it), and occasionally echo the
   enemy's cry.
-- macOS watcher + MLX backend: cross-compiled (`cargo check --target aarch64-apple-darwin`) and
   unit-tested, never run on a Mac. First things to verify there: `ps -o pgid,tpgid,stat` output
   parsing, tty atime updating on input, `mlx_lm` chat-template kwargs.
 - `.github/workflows/ci.yml`: lint/build/bench/harness on Linux, build + checks on macOS, release binaries on `v*` tags; `models.yml` checks the catalogue weekly.

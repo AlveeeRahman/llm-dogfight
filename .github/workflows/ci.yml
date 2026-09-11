@@ -7,11 +7,11 @@ on:
 
 jobs:
   test:
-    name: lint, build, bench, harness (Linux)
+    name: lint, build, bench, pty harness (Linux)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y zsh fish python3-pil python3-numpy
+      - run: sudo apt-get update && sudo apt-get install -y python3-pil python3-numpy
       - run: rustup component add clippy rustfmt
       - run: cargo fmt --check                     # formatting is enforced
       - run: cargo clippy --release -- -D warnings # every lint is an error (incl. undocumented unsafe)
@@ -20,11 +20,7 @@ jobs:
       - run: sudo cp target/release/dogfight /usr/local/bin/
       - run: dogfight bench --size 200x55 --frames 600 | tee bench.jsonl
       - run: python3 eval/check_bench.py bench.jsonl
-      - name: pty harness (18 checks across bash, zsh and fish)
-        run: DOGFIGHT_WATCH_LOG=/tmp/watch.log python3 eval/test_terminal.py
-      - name: watcher decisions (diagnostics)
-        if: always()
-        run: cat /tmp/watch.log 2>/dev/null | tail -60 || true
+      - run: python3 eval/test_terminal.py          # pty harness: start, key exit, screen/termios restore, SIGTERM
       - run: python3 eval/test_arena.py             # sidecar prompt/parse/lessons, no GPU needed
       - run: pip install --quiet bandit ruff && bandit -q -r agents/ scripts/ && ruff check agents/ eval/test_arena.py scripts/
 

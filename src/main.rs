@@ -5,11 +5,9 @@ mod canvas;
 mod config;
 mod encode;
 mod evolve;
-mod idle;
 mod math;
 mod rng;
 mod scenes;
-mod shell;
 mod term;
 
 use config::Config;
@@ -19,10 +17,10 @@ const HELP: &str = "LLM Dogfight — a UFO dogfight in your terminal, flown by t
 
 USAGE
   dogfight                         start the battle (auto-detects CUDA, or MLX on Apple silicon); any key exits
-  dogfight cuda | dogfight mlx      same, with the backend chosen by hand
+  dogfight cuda | mlx | cpu         same, with the backend chosen by hand (cpu: no GPU, tiny models, slow but real)
   dogfight evolve                  ... and evolve each team's bounded doctrine with a genetic algorithm
   dogfight ufo                     the built-in pilots, no models, no GPU
-      options: [--zorb MODEL] [--krell MODEL] [--lessons on|off] [--fps N] [--seed N] [--duration SECS] [--perf FILE]
+      options: [--zorb MODEL] [--krell MODEL] [--lessons on|off] [--fps N] [--seed N] [--duration SECS] [--perf FILE] [--shot SECS:FILE]
   dogfight models                  the model catalogue (aliases, sizes, what fits 8 GB); --zorb/--krell take an alias or any HF id
   dogfight run [cuda|mlx] [ufo|ufo-battle] [evolve]   the long form of the above
   dogfight arena check [--load]    verify python/torch/CUDA (or mlx) and the models; --load times them
@@ -30,20 +28,14 @@ USAGE
   dogfight arena lessons           what the commanders learned, and their evolved doctrines
   dogfight reset model | score | all
                                   forget lessons + doctrines / games won and lost / both
-  dogfight install [--shell bash|zsh|fish]
-                                  optional: also play whenever your prompt sits idle (screensaver mode)
-  dogfight uninstall               remove that shell hook, stop watchers (keeps config, memories, models)
   dogfight remove [--yes] [--keep-models]
-                                  uninstall everything: hook, watchers, config, memories, scores,
-                                  logs, rc-file backups, the downloaded models, and this binary
-  dogfight pause [MINUTES] | resume
+                                  uninstall everything: config, memories, scores, logs, the
+                                  downloaded models, and this binary
   dogfight status                  show config, integration and watchers
   dogfight config                  print the default config (copy to ~/.config/dogfight/config.toml)
 
   dogfight bench [--scene NAME] [--size 200x55] [--frames 600] [--seed 42]
   dogfight snapshot --scene NAME [--size 120x36] [--frames 300] [--seed 42] --out FILE
-  dogfight init bash|zsh|fish      print the shell snippet (used by install)
-  dogfight watch --pid PID [--tty /dev/ttys001] [--idle SECS] [--daemon]
 ";
 
 struct Args {
@@ -383,8 +375,8 @@ fn cfg_size(id: &str) -> f32 {
     MODELS.iter().find(|m| m.1 == id).map(|m| m.2).unwrap_or(3.0)
 }
 
-/// `dogfight remove [--yes] [--keep-models]`: the whole footprint — hook, watchers, config,
-/// state, data, runtime dir, rc-file backups, the models dogfight downloaded — then the binary.
+/// `dogfight remove [--yes] [--keep-models]`: the whole footprint — config, state, data,
+/// runtime dir, the models dogfight downloaded — then the binary.
 fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
     let keep_models = a.has("keep-models");
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
@@ -404,15 +396,6 @@ fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
         }
     }
     let models: Vec<std::path::PathBuf> = ids.iter().map(|m| hf_hub.join(format!("models--{}", m.replace('/', "--")))).filter(|p| p.exists()).collect();
-    // backups `dogfight install` made of the rc files
-    let mut backups: Vec<std::path::PathBuf> = vec![];
-    for sh in ["bash", "zsh"] {
-        let Some(rc) = shell::rc_path(sh) else { continue };
-        let prefix = format!("{}.dogfight-backup-", rc.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default());
-        if let Some(rd) = rc.parent().and_then(|d| std::fs::read_dir(d).ok()) {
-            backups.extend(rd.flatten().map(|e| e.path()).filter(|p| p.file_name().map(|f| f.to_string_lossy().starts_with(&prefix)).unwrap_or(false)));
-        }
-    }
     let mut bins: Vec<std::path::PathBuf> = vec![];
     if cargo_bin.exists() {
         bins.push(cargo_bin.clone());
@@ -423,15 +406,10 @@ fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
         }
     }
     println!("dogfight remove will delete:");
-    let hooks = shell::installed();
-    println!("  shell hook: {}", if hooks.is_empty() { "none".to_string() } else { hooks.join(", ") });
     for d in &dirs {
         if d.exists() {
             println!("  {}", d.display());
         }
-    }
-    for b in &backups {
-        println!("  {} (backup of your rc file made by `dogfight install`)", b.display());
     }
     if keep_models {
         println!("  (kept: {} downloaded model dir(s) in {}, --keep-models)", models.len(), hf_hub.display());
@@ -455,7 +433,6 @@ fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
             return 1;
         }
     }
-    println!("{}", shell::uninstall());
     let gone = |path: &std::path::Path, dir: bool| match if dir { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) } {
         Ok(()) => println!("removed {}", path.display()),
         Err(e) => eprintln!("could not remove {}: {e}", path.display()),
@@ -468,13 +445,10 @@ fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
             gone(m, true);
         }
     }
-    for b in &backups {
-        gone(b, false);
-    }
     for b in &bins {
         gone(b, false);
     }
-    println!("dogfight is gone{}. Open a new terminal so running shells drop the old trap.", if keep_models { " (models kept)" } else { "" });
+    println!("dogfight is gone{}.", if keep_models { " (models kept)" } else { "" });
     0
 }
 
@@ -548,10 +522,20 @@ fn main() {
     if let Some(m) = a.get("krell") {
         cfg.lm_model_b = resolve_model(m);
     }
+    if let Some(b) = a.get("backend") {
+        if matches!(b, "auto" | "cuda" | "mlx" | "cpu") {
+            cfg.lm_backend = b.to_string();
+        }
+    }
     let cfg = cfg;
     // no arguments: the battle itself (falls back to the built-in pilots if the sidecar can't start)
     let cmd = a.pos.first().map(|s| s.as_str()).unwrap_or("ufo-battle");
     let on = |v: &str| !matches!(v.to_lowercase().as_str(), "off" | "false" | "0" | "no");
+    // `--shot 75:battle.ansi`: save the live frame at second 75 (render it with eval/ansi2png.py)
+    let shot: Option<(f32, String)> = a.get("shot").and_then(|v| {
+        let (secs, path) = v.split_once(':')?;
+        Some((secs.parse().ok()?, path.to_string()))
+    });
     let evolve = a.get("lessons").or_else(|| a.get("evolve")).map(on);
     // `dogfight run [cuda|mlx] [ufo|ufo-battle] [evolve]`: positional words pick backend, scene, GA
     let mut scene = a.get("scene").map(String::from);
@@ -560,7 +544,7 @@ fn main() {
     let mut genetic = a.get("genetic").map(on);
     for w in a.pos.iter().skip(1) {
         match w.as_str() {
-            "cuda" | "mlx" => backend = Some(w.clone()),
+            "cuda" | "mlx" | "cpu" => backend = Some(w.clone()),
             "ufo-battle" | "battle" | "lm" => {
                 scene = Some("ufo".into());
                 pilots = Some("lm".into());
@@ -579,18 +563,18 @@ fn main() {
         genetic,
         fps: a.num("fps"),
         seed: a.num("seed"),
-        idle_trigger: a.num("idle-trigger"),
         duration: a.num("duration"),
+        shot: shot.clone(),
     };
     let code = match cmd {
         // `dogfight` / `dogfight cuda` / `dogfight mlx` / `dogfight evolve`: the battle. `dogfight ufo`: the baseline.
         "run" | "preview" | "demo" | "play" => app::run(&cfg, run_opts(scene, pilots, backend)),
-        "cuda" | "mlx" | "evolve" | "ufo-battle" | "battle" => {
+        "cuda" | "mlx" | "cpu" | "evolve" | "ufo-battle" | "battle" => {
             let mut backend = backend;
             let mut genetic = genetic;
             for w in a.pos.iter() {
                 match w.as_str() {
-                    "cuda" | "mlx" => backend = Some(w.clone()),
+                    "cuda" | "mlx" | "cpu" => backend = Some(w.clone()),
                     "evolve" => genetic = Some(true),
                     _ => {}
                 }
@@ -606,74 +590,19 @@ fn main() {
                     genetic,
                     fps: a.num("fps"),
                     seed: a.num("seed"),
-                    idle_trigger: None,
                     duration: a.num("duration"),
+                    shot: shot.clone(),
                 },
             )
         }
         "ufo" => app::run(&cfg, run_opts(Some("ufo".into()), Some("builtin".into()), None)),
-        "arena" if a.pos.len() == 1 || matches!(a.pos[1].as_str(), "cuda" | "mlx" | "evolve") => {
+        "arena" if a.pos.len() == 1 || matches!(a.pos[1].as_str(), "cuda" | "mlx" | "cpu" | "evolve") => {
             app::run(&cfg, run_opts(Some("ufo".into()), Some("lm".into()), backend))
         }
         "arena" => arena_cmd(&cfg, &a),
         "reset" => reset_cmd(&a),
         "models" => models_cmd(&cfg),
-        "watch" => match a.num::<i32>("pid") {
-            Some(pid) => idle::watch(pid, a.get("tty"), a.num("idle"), a.has("daemon")),
-            None => {
-                eprintln!("watch needs --pid");
-                2
-            }
-        },
-        "init" => match a.pos.get(1).and_then(|s| shell::snippet(s)) {
-            Some(s) => {
-                print!("{s}");
-                0
-            }
-            None => {
-                eprintln!("usage: dogfight init bash|zsh|fish");
-                2
-            }
-        },
-        "install" => {
-            let sh = a.get("shell").map(String::from).unwrap_or_else(shell::detect_shell);
-            match shell::install(&sh) {
-                Ok(m) => {
-                    println!("{m}");
-                    println!("idle after {} s (change idle_seconds in {})", cfg.idle_seconds, config::config_path().display());
-                    0
-                }
-                Err(e) => {
-                    eprintln!("dogfight: {e}");
-                    1
-                }
-            }
-        }
-        "uninstall" => {
-            println!("{}", shell::uninstall());
-            println!(
-                "kept: {}, {}, {} and the models in the Hugging Face cache.\nuse `dogfight remove` to delete everything.",
-                config::config_path().parent().map(|p| p.display().to_string()).unwrap_or_default(),
-                config::state_dir().display(),
-                config::data_dir().display()
-            );
-            0
-        }
         "remove" => remove_cmd(&cfg, &a),
-        "pause" => {
-            let m: Option<u64> = a.pos.get(1).and_then(|v| v.parse().ok());
-            idle::set_pause(m);
-            match m {
-                Some(m) => println!("paused for {m} min"),
-                None => println!("paused until `dogfight resume`"),
-            }
-            0
-        }
-        "resume" => {
-            idle::resume();
-            println!("resumed");
-            0
-        }
         "list" => {
             for (n, d) in scenes::NAMES {
                 println!("  {n:<8} {d}");
@@ -687,7 +616,7 @@ fn main() {
         }
         "status" => {
             println!("config:      {}{}", config::config_path().display(), if config::config_path().exists() { "" } else { " (defaults)" });
-            println!("idle:        {} s, fps {}, scenes {:?}", cfg.idle_seconds, cfg.fps, cfg.scenes);
+            println!("fps:         {} (unfocused {})", cfg.fps, cfg.unfocused_fps);
             println!("colour:      {}", if cfg.truecolor() { "truecolor" } else { "256" });
             println!("pilots:      {}", cfg.ufo_pilots);
             println!(
@@ -699,9 +628,6 @@ fn main() {
                 cfg.lm_python,
                 if cfg.lm_evolve { "on" } else { "off" }
             );
-            let inst = shell::installed();
-            println!("installed:   {}", if inst.is_empty() { "no (run `dogfight install`)".to_string() } else { inst.join(", ") });
-            println!("paused:      {}", idle::paused());
             println!("state:       {}", config::state_dir().display());
             println!("arena log:   {}", arena::log_path().display());
             0
