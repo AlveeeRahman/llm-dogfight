@@ -1,0 +1,98 @@
+# What this repository says about itself, in one place.
+#
+# This is a record, not a contract: no script reads it and no CI job enforces it.
+# It exists so that the next person -- or the next agent -- changing the repository
+# description, the topics, the README opening or the Pages <head> has one file to read
+# instead of reverse-engineering the intent from several places that drift apart.
+#
+# When you change a fact here, change it in the places listed under `appears_in` too.
+
+schema_version: 1
+repository: AlveeeRahman/llm-dogfight
+name: LLM Dogfight
+
+canonical_url: https://alveeerahman.github.io/llm-dogfight/
+sitemap_url: https://alveeerahman.github.io/llm-dogfight/sitemap.xml
+mirror_url: https://huggingface.co/spaces/AlveRahman/llm-dogfight   # Space card + release mirror; its page points its canonical at canonical_url
+
+# One precise phrase. It belongs in the title, the opening paragraph, one heading and
+# the repository description -- once each, not repeated for its own sake.
+primary_keyword: "terminal UFO dogfight between two local LLMs"
+
+title: "LLM Dogfight: a terminal UFO dogfight between two local LLMs"
+description: "A terminal UFO dogfight between two local LLMs: small open models command rival saucer teams on CUDA, Apple MLX or CPU, learn from every loss, and evolve their doctrine with a genetic algorithm."
+
+version: "0.5.0"
+license_spdx: MIT
+programming_language: Rust          # the binary; the model sidecar (agents/arena.py) is Python
+runtime_platform: Linux and macOS terminals (truecolor); CUDA, Apple MLX or CPU for the models
+author:
+  name: Alvee Rahman
+  url: https://github.com/AlveeeRahman
+
+# Facts that the README, the Pages <head> and the Space page repeat.
+binary_size_mb: 0.8
+rust_dependencies: 1                 # libc
+catalogue_models: 23                 # `dogfight models`; all ungated on Hugging Face, 0.6B to 14B
+default_pair: [Qwen/Qwen3-0.6B, HuggingFaceTB/SmolLM2-360M-Instruct]   # 2.2 GB download
+gpu_target_gb: 8                     # every default and recommended pair fits an 8 GB CUDA card
+minimum_rust: "1.88"                 # what the sources need; CI builds on current stable
+tested_python: "3.12"                # the CI runners (ubuntu-24.04, macos-latest); the sidecar needs 3.10+ syntax
+
+# Every network connection the software opens. The Rust binary opens none. The Python
+# sidecar downloads model weights once, then runs offline; an HF token is optional and
+# only raises the rate limit (and lets you fetch community re-uploads faster).
+network_surfaces:
+  - component: agents/arena.py
+    hosts:
+      - huggingface.co
+      - cdn-lfs.huggingface.co
+    purpose: Download the two chosen models into ~/.cache/huggingface/hub on first run.
+    requires: transformers (CUDA/CPU) or mlx-lm (Apple silicon)
+
+# GitHub allows 20. Lowercase words separated by hyphens, describing what the software
+# is rather than how good it is.
+topics:
+  - llm
+  - local-llm
+  - small-language-models
+  - llm-vs-llm
+  - terminal
+  - terminal-game
+  - tui
+  - rust
+  - cuda
+  - mlx
+  - apple-silicon
+  - huggingface
+  - transformers
+  - pytorch
+  - game
+  - ai-game
+  - genetic-algorithm
+  - qwen
+  - smollm
+  - multi-agent
+
+# 1280x640, the size GitHub asks for. eval/social_preview.py is the editable source: it
+# renders the real battle screenshot under the title. Re-run it after a new screenshot.
+social_preview: docs/assets/social-preview.png
+
+suite:
+  - name: Skill Vision
+    url: https://alveeerahman.github.io/skill-vision/
+  - name: Agent Oracle
+    url: https://alveeerahman.github.io/agent-oracle/
+  - name: Research Hound
+    url: https://alveeerahman.github.io/research-hound/
+  - name: LLM Dogfight
+    url: https://alveeerahman.github.io/llm-dogfight/
+
+# The files that repeat the facts above. Keep them in step by hand.
+appears_in:
+  - README.md
+  - Cargo.toml (description, homepage, repository, keywords)
+  - docs/index.html
+  - docs/sitemap.xml
+  - space/landing.html (the Hugging Face Space page, via scripts/publish_hf.py)
+  - github.com repository description, homepage and topics

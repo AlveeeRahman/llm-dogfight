@@ -1,14 +1,17 @@
 <div align="center">
 
-# LLM Dogfight
+# LLM Dogfight: a terminal UFO dogfight between two local LLMs
 
-**A UFO dogfight in your terminal, flown by two small language models running on your own machine.**
+**Two small open models, running on your own machine, command rival saucer teams in your terminal.**
 
 [![ci](https://github.com/AlveeeRahman/llm-dogfight/actions/workflows/ci.yml/badge.svg)](https://github.com/AlveeeRahman/llm-dogfight/actions/workflows/ci.yml)
 [![models on Hugging Face](https://github.com/AlveeeRahman/llm-dogfight/actions/workflows/models.yml/badge.svg)](https://github.com/AlveeeRahman/llm-dogfight/actions/workflows/models.yml)
 [![release](https://img.shields.io/github/v/release/AlveeeRahman/llm-dogfight?display_name=tag)](https://github.com/AlveeeRahman/llm-dogfight/releases)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![on Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Space-yellow)](https://huggingface.co/spaces/AlveRahman/llm-dogfight)
+
+**Documentation**: [alveeerahman.github.io/llm-dogfight](https://alveeerahman.github.io/llm-dogfight/) ·
+mirrored on the [Hugging Face Space](https://huggingface.co/spaces/AlveRahman/llm-dogfight)
 
 ![LLM Dogfight: a live battle between two local models](eval/snapshots/battle.png)
 

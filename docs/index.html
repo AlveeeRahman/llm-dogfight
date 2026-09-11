@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Dogfight: a terminal UFO dogfight between two local LLMs</title>
+<meta name="description" content="A terminal UFO dogfight between two local LLMs: small open models command rival saucer teams on CUDA, Apple MLX or CPU, learn from every loss, and evolve their doctrine with a genetic algorithm.">
+<link rel="canonical" href="https://alveeerahman.github.io/llm-dogfight/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="LLM Dogfight">
+<meta property="og:title" content="LLM Dogfight: a terminal UFO dogfight between two local LLMs">
+<meta property="og:description" content="A terminal UFO dogfight between two local LLMs: small open models command rival saucer teams on CUDA, Apple MLX or CPU, learn from every loss, and evolve their doctrine with a genetic algorithm.">
+<meta property="og:url" content="https://alveeerahman.github.io/llm-dogfight/">
+<meta property="og:image" content="https://alveeerahman.github.io/llm-dogfight/assets/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="LLM Dogfight: a terminal UFO dogfight between two local LLMs">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  "name": "LLM Dogfight",
+  "description": "A terminal UFO dogfight between two local LLMs: small open models command rival saucer teams on CUDA, Apple MLX or CPU, learn from every loss, and evolve their doctrine with a genetic algorithm.",
+  "url": "https://alveeerahman.github.io/llm-dogfight/",
+  "codeRepository": "https://github.com/AlveeeRahman/llm-dogfight",
+  "programmingLanguage": ["Rust", "Python"],
+  "runtimePlatform": "Linux and macOS terminals; CUDA, Apple MLX or CPU",
+  "operatingSystem": ["Linux", "macOS"],
+  "applicationCategory": "Game",
+  "license": "https://github.com/AlveeeRahman/llm-dogfight/blob/HEAD/LICENSE",
+  "version": "0.5.0",
+  "dateModified": "2026-09-10",
+  "downloadUrl": "https://github.com/AlveeeRahman/llm-dogfight/releases/latest",
+  "sameAs": ["https://huggingface.co/spaces/AlveRahman/llm-dogfight"],
+  "author": {
+    "@type": "Person",
+    "name": "Alvee Rahman",
+    "url": "https://github.com/AlveeeRahman"
+  }
+}
+</script>
+<style>
+  :root { --ink:#1f2937; --sub:#4b5563; --line:#e5e7eb; --accent:#0e7490; --bg:#ffffff; --code:#f3f4f6; --zorb:#0e9f8a; --krell:#c0267a; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e5e7eb; --sub:#9ca3af; --line:#374151; --accent:#3cf0d8; --bg:#0b0c17; --code:#141628; --zorb:#3cf0d8; --krell:#ff5aa8; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.65 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 46rem; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+  h1 { font-size: 2rem; line-height:1.2; margin: 0 0 .5rem; }
+  h2 { font-size: 1.3rem; margin: 2.2rem 0 .6rem; }
+  p { margin: .7rem 0; }
+  .sub { color: var(--sub); font-size: 1.05rem; }
+  a { color: var(--accent); }
+  img { max-width:100%; border-radius:8px; border:1px solid var(--line); }
+  pre { background: var(--code); padding: .9rem 1rem; border-radius: 8px; overflow-x:auto; font-size:.85rem; line-height:1.5; }
+  code { background: var(--code); padding:.1rem .3rem; border-radius:4px; font-size:.9em; }
+  pre code { padding:0; background:none; }
+  table { border-collapse: collapse; width:100%; font-size:.92rem; }
+  th, td { text-align:left; padding:.45rem .6rem; border-bottom:1px solid var(--line); vertical-align: top; }
+  .cta { display:inline-block; margin:.8rem .6rem 0 0; padding:.55rem 1rem; border:1px solid var(--accent); border-radius:8px; text-decoration:none; font-weight:600; }
+  .zorb { color: var(--zorb); font-weight:700; } .krell { color: var(--krell); font-weight:700; }
+  ul { padding-left: 1.2rem; }
+  footer { margin-top:3rem; padding-top:1rem; border-top:1px solid var(--line); color:var(--sub); font-size:.9rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🛸 LLM Dogfight</h1>
+  <p class="sub"><strong>A terminal UFO dogfight between two local LLMs.</strong> Team <span class="zorb">ZORB</span> and team <span class="krell">KRELL</span> are each commanded by a different small open model running on your own machine. About once a second every commander reads a text description of the field and answers with one order per saucer: attack, hunt, flee, or abduct a cow. Losses make them shout, and every loss becomes a lesson in their prompt.</p>
+
+  <p>
+    <a class="cta" href="https://github.com/AlveeeRahman/llm-dogfight">GitHub repository</a>
+    <a class="cta" href="https://github.com/AlveeeRahman/llm-dogfight/releases/latest">Latest release</a>
+    <a class="cta" href="https://huggingface.co/spaces/AlveRahman/llm-dogfight">Hugging Face Space</a>
+  </p>
+
+  <img src="https://raw.githubusercontent.com/AlveeeRahman/llm-dogfight/main/eval/snapshots/battle.png" alt="LLM Dogfight: a live battle between two local models, rendered in a terminal" width="1600" height="880">
+
+  <h2>Install and play</h2>
+  <pre><code># the tool: Rust toolchain from https://rustup.rs, or a binary from Releases
+cargo install --git https://github.com/AlveeeRahman/llm-dogfight
+
+# a model runtime, one of:
+pip install torch transformers    # NVIDIA GPU, 8 GB or more (a CUDA build of torch)
+pip install mlx-lm                # Apple silicon Mac
+
+dogfight                          # first run downloads the two default models (2.2 GB)
+dogfight models                   # the catalogue, and the strongest pair your machine can hold
+dogfight evolve                   # a genetic algorithm also evolves each team's tactics
+dogfight ufo                      # no GPU? the built-in pilots, no models at all</code></pre>
+  <p>The binary is 0.8 MB of Rust with one dependency. The models live in a Python sidecar and run on CUDA, Apple MLX (<code>dogfight mlx</code>) or the CPU. Everything a model says is filtered before it reaches your terminal, any key gives the terminal back exactly as it was, and <code>dogfight remove</code> deletes everything the tool put on the machine, itself included.</p>
+
+  <h2>How a battle works</h2>
+  <table>
+    <tr><th>Rule</th><th>What happens</th></tr>
+    <tr><td>Fleet</td><td>4 saucers per team on screen; a destroyed one is replaced 4 s later from 20 reinforcements per game, then it is a fight to the death.</td></tr>
+    <tr><td>Game over</td><td>A team with nothing in the air and nothing left to send loses. The next game starts 10 s later and the loser fields one extra saucer.</td></tr>
+    <tr><td>Score</td><td>One point per enemy saucer destroyed and one per cow abducted; games won are remembered per model pair.</td></tr>
+    <tr><td>Orders</td><td><code>attack E4</code>, <code>hunt</code>, <code>flee</code>, <code>abduct C1</code>. No idle order; anything a model invents becomes <code>hunt</code>.</td></tr>
+    <tr><td>Cries and lessons</td><td>Losing a saucer earns the team a battle cry in the HUD and a post-mortem the commander turns into one rule for the future. Lessons persist per model.</td></tr>
+    <tr><td>Doctrine</td><td>Six bounded parameters (when to flee, when to be brave, when a cow is worth it, target focus, courage) keep a small model from drifting. <code>dogfight evolve</code> breeds them with a genetic algorithm, both teams in parallel, with zero extra model calls.</td></tr>
+  </table>
+  <p>The doctrine bounds follow the guardrail idea of <a href="https://github.com/Zxy-MLlab/AutoSafe">AutoSafe</a>: the model chooses freely inside the bounds, and the bounds themselves are what evolves. The <a href="https://github.com/AlveeeRahman/llm-dogfight#rules-of-a-battle">README</a> has the full rules, the doctrine table and the algorithm.</p>
+
+  <img src="https://raw.githubusercontent.com/AlveeeRahman/llm-dogfight/main/eval/snapshots/hud.png" alt="The commanders' battle cries and lessons at the top of the screen" width="1600" height="300">
+
+  <h2>Models</h2>
+  <p>A catalogue of 23 ungated Hugging Face models from 0.6B to 14B parameters, or any model id you name with <code>--zorb</code> and <code>--krell</code>. The default pair, Qwen3-0.6B against SmolLM2-360M, is a 2.2 GB download and fits any CUDA card; <code>dogfight models</code> measures your GPU or unified memory and names the strongest pair it can hold. Matchups played through many full games:</p>
+  <table>
+    <tr><th>Pair</th><th>Memory</th><th>Character</th></tr>
+    <tr><td><code>qwen3-0.6b</code> vs <code>smollm2-1.7b</code></td><td>4.6 GB</td><td>Qwen's aggression against SmolLM2's caution</td></tr>
+    <tr><td><code>qwen3-0.6b</code> vs <code>smollm2-360m</code></td><td>2.2 GB</td><td>the default: decisions in a tenth of a second, fast and messy</td></tr>
+    <tr><td><code>granite3.3-2b</code> vs <code>qwen3-1.7b</code></td><td>9.2 GB</td><td>the smartest small pair; a card above 8 GB, or 8-bit on 8 GB</td></tr>
+    <tr><td><code>qwen3-0.6b</code> vs <code>gemma3-1b</code></td><td>3.5 GB</td><td>the most even of the small pairs</td></tr>
+  </table>
+  <p>Refusal-free ("abliterated") community builds have more to say in the HUD; the README explains how to run them and when a Hugging Face token helps.</p>
+
+  <h2 id="what-touches-the-network">What touches the network</h2>
+  <p>The Rust binary opens no connection at all. The Python sidecar downloads the two chosen models from <code>huggingface.co</code> once, into <code>~/.cache/huggingface/hub</code>, and then runs offline. No API key is needed; a Hugging Face token is optional and only raises the download rate limit.</p>
+  <table>
+    <tr><th>Component</th><th>Reaches</th><th>Why</th></tr>
+    <tr><td><code>agents/arena.py</code></td><td>huggingface.co, cdn-lfs.huggingface.co</td><td>Fetch model weights on first run.</td></tr>
+  </table>
+  <p><strong>Nothing sends your terminal contents, prompts or scores anywhere.</strong> Model output is reduced to plain ASCII before it is drawn, so a model cannot emit escape sequences into your terminal.</p>
+
+  <h2>Why terminal text, and why such small models?</h2>
+  <p>The renderer is plain truecolor text (half-blocks and braille), so it runs in the default Ubuntu terminal, GNOME Terminal, Ptyxis, kitty, iTerm2 and Ghostty with no graphics protocol, and it stays under 45 KB per frame. The models are small on purpose: two of them have to share an 8 GB card and answer about once a second, and the game is more interesting when its commanders are fallible and learn than when they are perfect.</p>
+
+  <h2 id="project-resources">Project resources</h2>
+  <ul>
+    <li><a href="https://github.com/AlveeeRahman/llm-dogfight">Source repository</a></li>
+    <li><a href="https://github.com/AlveeeRahman/llm-dogfight/releases">Releases: Linux x86_64 and macOS arm64 binaries with checksums</a></li>
+    <li><a href="https://huggingface.co/spaces/AlveRahman/llm-dogfight">Hugging Face Space: the same page and release mirror</a></li>
+    <li><a href="https://github.com/AlveeeRahman/llm-dogfight/blob/HEAD/SECURITY.md">Security policy and threat model</a></li>
+    <li><a href="https://github.com/AlveeeRahman/llm-dogfight/blob/HEAD/docs/ARCHITECTURE.md">Architecture notes</a></li>
+  </ul>
+  <p>By the author of <a href="https://alveeerahman.github.io/skill-vision/">Skill Vision</a> · <a href="https://alveeerahman.github.io/agent-oracle/">Agent Oracle</a> · <a href="https://alveeerahman.github.io/research-hound/">Research Hound</a>.</p>
+
+  <footer>
+    MIT licensed · <a href="https://github.com/AlveeeRahman/llm-dogfight">github.com/AlveeeRahman/llm-dogfight</a> · every push runs rustfmt, clippy, cargo-audit, bandit, ruff, a byte-budget benchmark and a pty harness on Linux and macOS; every release ships binaries to GitHub and Hugging Face.
+  </footer>
+</main>
+</body>
+</html>

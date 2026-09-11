@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://alveeerahman.github.io/llm-dogfight/sitemap.xml

@@ -2,10 +2,12 @@
 name = "llm-dogfight"
 version = "0.5.0"
 edition = "2021"
-description = "A UFO dogfight in your terminal, flown by two small local language models (CUDA or Apple MLX); optional idle-screensaver mode."
+description = "A terminal UFO dogfight between two local LLMs: small open models command rival saucer teams on CUDA, Apple MLX or CPU."
 license = "MIT"
 readme = "README.md"
-keywords = ["llm", "terminal", "game", "ai", "tui"]
+homepage = "https://alveeerahman.github.io/llm-dogfight/"
+repository = "https://github.com/AlveeeRahman/llm-dogfight"
+keywords = ["llm", "terminal", "game", "local-llm", "tui"]
 categories = ["command-line-utilities", "games"]
 
 [[bin]]

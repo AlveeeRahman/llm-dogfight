@@ -31,7 +31,7 @@ def main():
     readme = readme.replace("](SECURITY.md)", f"]({GITHUB}/blob/main/SECURITY.md)").replace("](LICENSE)", f"]({GITHUB}/blob/main/LICENSE)")
     shots = root / "eval" / "snapshots"
     front = ("---\ntitle: LLM Dogfight\nemoji: 🛸\ncolorFrom: purple\ncolorTo: green\nsdk: static\npinned: true\nlicense: mit\n"
-             "short_description: Two small local LLMs dogfight in your terminal\n---\n\n")
+             "short_description: A terminal UFO dogfight between two local LLMs\n---\n\n")
     body = markdown.markdown(readme, extensions=["tables", "fenced_code"])
     tmpl = (root / "space" / "landing.html").read_text(encoding="utf-8")
     page = tmpl.replace("@GITHUB@", GITHUB).replace("@BODY@", body)
