@@ -110,6 +110,19 @@ reverie --zorb lfm2-1.2b --krell gemma3-1b       # try a pair once
 reverie arena check --load                        # confirm both load and see the peak GPU memory
 ```
 
+The sidecar caps itself at your card's memory minus 2 GB (`lm_vram_gb`), so a bigger card
+simply allows bigger pairs; an out-of-memory error names the cap and the ways around it.
+Pairs played through full battles on an RTX 4000 Ada (20 GB) while this was written:
+
+```sh
+reverie --zorb qwen3-0.6b --krell smollm2-1.7b         # the defaults, 4.6 GB
+reverie --zorb qwen3-0.6b --krell gemma3-1b            # 3.6 GB
+reverie --zorb deepseek-r1-1.5b --krell qwen3-1.7b     # 7.9 GB: a card above 8 GB, or lm_quant = "8bit"
+```
+
+An alias that is not in the catalogue is refused with a hint rather than started; a Hugging
+Face id (`org/name`) is always accepted as typed.
+
 To keep a pair, set `lm_model_a` and `lm_model_b` in the config. Any Hugging Face model with
 a chat template and safetensors weights works; append `@<commit>` to pin the weights. On MLX
 the same ids work through mlx-lm, and the `mlx-community/*-4bit` repos are smaller and faster.
@@ -143,7 +156,7 @@ while you are away.
 |---|---|---|
 | `lm_backend` | `auto` | `cuda`, `mlx`, or `auto` (MLX on Apple silicon, CUDA elsewhere) |
 | `lm_model_a`, `lm_model_b` | Qwen3-0.6B, SmolLM2-1.7B | the two commanders |
-| `lm_vram_gb` | 6 | GPU memory cap for the sidecar (both models) |
+| `lm_vram_gb` | `auto` | GPU memory cap for the sidecar: the card's memory minus 2 GB, or a number of GB |
 | `lm_quant` | `none` | `8bit` or `4bit` via bitsandbytes for bigger pairs (CUDA) |
 | `lm_evolve` | true | write and use lessons after each loss |
 | `lm_genetic` | false | doctrine evolution (same as the `evolve` word) |

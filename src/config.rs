@@ -17,6 +17,7 @@ pub struct Config {
     pub lm_backend: String,
     pub lm_model_a: String,
     pub lm_model_b: String,
+    /// CUDA memory cap for the sidecar in GB; 0 = auto (card memory minus 2 GB)
     pub lm_vram_gb: f32,
     pub lm_quant: String,
     pub lm_python: String,
@@ -64,7 +65,8 @@ ufo_pilots = "builtin"
 lm_backend = "auto"                                 # auto = cuda, or mlx on Apple silicon; or `reverie mlx` / `reverie cuda`
 lm_model_a = "Qwen/Qwen3-0.6B"                      # team ZORB
 lm_model_b = "HuggingFaceTB/SmolLM2-1.7B-Instruct"  # team KRELL
-lm_vram_gb = 6                                      # CUDA memory cap for both models
+lm_vram_gb = "auto"                                 # CUDA memory cap for the sidecar: auto = your card's memory
+                                                    # minus 2 GB (6 GB on an 8 GB card), or a number of GB
 lm_quant = "none"                                   # cuda: none | 8bit | 4bit (bitsandbytes) for bigger models
 lm_python = "python3"                               # interpreter that has the ML packages
 lm_think_seconds = 1.0                              # minimum pause between a team's orders
@@ -91,7 +93,7 @@ impl Default for Config {
             lm_backend: "auto".into(),
             lm_model_a: "Qwen/Qwen3-0.6B".into(),
             lm_model_b: "HuggingFaceTB/SmolLM2-1.7B-Instruct".into(),
-            lm_vram_gb: 6.0,
+            lm_vram_gb: 0.0, // 0 = auto
             lm_quant: "none".into(),
             lm_python: "python3".into(),
             lm_think_seconds: 1.0,
@@ -124,7 +126,13 @@ impl Config {
                 "rotate_minutes" => set_num(&mut self.rotate_minutes, v),
                 "max_instances" => set_num(&mut self.max_instances, v),
                 "tolerance" => set_num(&mut self.tolerance, v),
-                "lm_vram_gb" => set_num(&mut self.lm_vram_gb, v),
+                "lm_vram_gb" => {
+                    if unquote(v).eq_ignore_ascii_case("auto") {
+                        self.lm_vram_gb = 0.0;
+                    } else {
+                        set_num(&mut self.lm_vram_gb, v);
+                    }
+                }
                 "lm_think_seconds" => set_num(&mut self.lm_think_seconds, v),
                 "color" => self.color = unquote(v),
                 "ufo_pilots" | "pilots" => self.ufo_pilots = unquote(v),
@@ -150,7 +158,7 @@ impl Config {
         self.unfocused_fps = self.unfocused_fps.clamp(1, 120);
         self.idle_seconds = self.idle_seconds.max(5);
         self.tolerance = self.tolerance.clamp(0, 32);
-        self.lm_vram_gb = self.lm_vram_gb.clamp(1.0, 512.0);
+        self.lm_vram_gb = if self.lm_vram_gb <= 0.0 { 0.0 } else { self.lm_vram_gb.clamp(1.0, 512.0) };
         self.lm_max_alive = self.lm_max_alive.clamp(1, 4);
         self.lm_regens = self.lm_regens.min(500);
         if !matches!(self.ufo_pilots.as_str(), "builtin" | "lm") {

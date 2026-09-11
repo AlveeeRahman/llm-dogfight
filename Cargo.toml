@@ -1,6 +1,6 @@
 [package]
 name = "reverie"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 description = "A UFO dogfight in your terminal, flown by two small local language models (CUDA or Apple MLX); optional idle-screensaver mode."
 license = "MIT"

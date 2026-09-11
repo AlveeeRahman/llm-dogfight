@@ -102,8 +102,10 @@ class TorchBackend:
         total = torch.cuda.get_device_properties(0).total_memory
         self.total_gb = total / 2**30
         # Hard cap: the caching allocator refuses to grow past the budget instead of
-        # spilling into memory the desktop or another program needs.
-        frac = min(1.0, vram_gb * 2**30 / total)
+        # spilling into memory the desktop or another program needs. 0 = auto: the card
+        # minus 2 GB, so an 8 GB card gets 6 GB and a 24 GB card gets 22 GB.
+        self.cap_gb = vram_gb if vram_gb > 0 else max(4.0, self.total_gb - 2.0)
+        frac = min(1.0, self.cap_gb * 2**30 / total)
         torch.cuda.set_per_process_memory_fraction(frac, 0)
         self.dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         self.quant = quant
@@ -143,7 +145,7 @@ class TorchBackend:
 
     def device_desc(self):
         p = self.torch.cuda.get_device_properties(0)
-        return f"{p.name}, {self.total_gb:.1f} GB, dtype {str(self.dtype).split('.')[-1]}"
+        return f"{p.name}, {self.total_gb:.1f} GB, cap {self.cap_gb:.1f} GB, dtype {str(self.dtype).split('.')[-1]}"
 
 
 class MlxBackend:
@@ -174,6 +176,14 @@ class MlxBackend:
 
     def device_desc(self):
         return f"Apple silicon via MLX ({platform.machine()})"
+
+
+def oom_hint(e):
+    """One line for the HUD/log: out-of-memory gets an actionable hint, anything else its first line."""
+    msg = str(e).splitlines()[0] if str(e) else repr(e)
+    if "out of memory" in msg.lower():
+        return "GPU memory cap reached: this pair does not fit; raise lm_vram_gb (or set it to \"auto\"), use lm_quant = \"8bit\", or pick a smaller model"
+    return msg[:160]
 
 
 def pick_backend(name):
@@ -396,7 +406,9 @@ def check(args):
             if torch.cuda.is_available():
                 p = torch.cuda.get_device_properties(0)
                 free, total = torch.cuda.mem_get_info()
-                print(f"gpu         {p.name}, {total / 2**30:.1f} GB total, {free / 2**30:.1f} GB free now; budget --vram-gb {args.vram_gb}")
+                cap = args.vram_gb if args.vram_gb > 0 else max(4.0, total / 2**30 - 2.0)
+                print(f"gpu         {p.name}, {total / 2**30:.1f} GB total, {free / 2**30:.1f} GB free now; sidecar cap {cap:.1f} GB "
+                      f"({'auto: card - 2 GB' if args.vram_gb <= 0 else 'lm_vram_gb'})")
     except ImportError as e:
         print(f"MISSING     {e}")
         print("            cuda: pip install torch transformers      mac: pip install mlx-lm, then `reverie run mlx ufo-battle`")
@@ -408,7 +420,11 @@ def check(args):
     cmdrs = []
     for mid in (args.model_a, args.model_b):
         t0 = time.time()
-        cmdrs.append(be.load(mid))
+        try:
+            cmdrs.append(be.load(mid))
+        except Exception as e:  # noqa: BLE001
+            print(f"FAILED      {mid}: {oom_hint(e)}")
+            return 1
         print(f"loaded      {mid} in {time.time() - t0:.1f}s, peak memory {be.mem_gb():.2f} GB")
     obs = {"team": 0, "tick": 1, "score": [0, 0], "cows_taken": [0, 0], "rounds": [0, 0], "round": 1, "fh": 55, "ground": 47,
            "range": 60, "cry": True,
@@ -459,8 +475,8 @@ def serve(args):
             t0 = time.time()
             c = be.load(mid)
             log(f"loaded {mid} in {time.time() - t0:.1f}s, peak {be.mem_gb():.2f} GB")
-        except Exception as e:
-            emit(f"ERROR loading {mid}: {str(e).splitlines()[0][:160]}")
+        except Exception as e:  # noqa: BLE001
+            emit(f"ERROR loading {label_of(mid)}: {oom_hint(e)}")
             return 1
         cmdrs.append(c)
         emit(f"READY {team} {c.label} {be.mem_gb():.2f}")
@@ -512,7 +528,7 @@ def main():
     ap.add_argument("--model-a", default="Qwen/Qwen3-0.6B")
     ap.add_argument("--model-b", default="HuggingFaceTB/SmolLM2-1.7B-Instruct")
     ap.add_argument("--backend", default="cuda", choices=["auto", "cuda", "mlx"])
-    ap.add_argument("--vram-gb", type=float, default=6.0, help="CUDA memory cap for this process (both models)")
+    ap.add_argument("--vram-gb", type=float, default=0.0, help="CUDA memory cap for this process (both models); 0 = card memory - 2 GB")
     ap.add_argument("--quant", default="none", choices=["none", "8bit", "4bit"], help="bitsandbytes quantization (cuda)")
     ap.add_argument("--evolve", dest="evolve", action="store_true", default=True, help="learn a lesson from every loss (default)")
     ap.add_argument("--no-evolve", dest="evolve", action="store_false")

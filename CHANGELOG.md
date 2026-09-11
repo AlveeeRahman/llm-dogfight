@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4 — 2026-09-10
+
+- The sidecar's GPU memory cap is now `auto` (card memory minus 2 GB) instead of a fixed 6 GB,
+  so larger cards can run larger pairs without editing the config; out-of-memory errors say
+  what to do; unknown model aliases are refused up front instead of silently falling back to
+  the built-in pilots.
+
 ## 0.3.3 — 2026-09-10
 
 - Llama removed from the catalogue (Meta's repositories are gated; no Llama entry at all now).

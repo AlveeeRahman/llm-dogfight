@@ -227,11 +227,11 @@ fn arena_cmd(cfg: &Config, a: &Args) -> i32 {
         }
     };
     println!(
-        "models: {} vs {}  backend {}  budget {} GB  evolve {}  ({})",
+        "models: {} vs {}  backend {}  {}  evolve {}  ({})",
         cfg.lm_model_a,
         cfg.lm_model_b,
         cfg.lm_backend,
-        cfg.lm_vram_gb,
+        vram_desc(cfg),
         if cfg.lm_evolve { "on" } else { "off" },
         config::config_path().display()
     );
@@ -266,9 +266,30 @@ const MODELS: &[(&str, &str, f32, &str)] = &[
     ("qwen2.5-3b", "Qwen/Qwen2.5-3B-Instruct", 6.2, "needs lm_quant = \"8bit\" next to a partner"),
 ];
 
+/// An alias from the catalogue, or a Hugging Face id (`org/name[@rev]`). Anything else is a
+/// typo: refuse it here rather than let the sidecar fail and the battle fall back silently.
 fn resolve_model(name: &str) -> String {
     let key = name.to_lowercase();
-    MODELS.iter().find(|m| m.0 == key).map(|m| m.1.to_string()).unwrap_or_else(|| name.to_string())
+    if let Some(m) = MODELS.iter().find(|m| m.0 == key) {
+        return m.1.to_string();
+    }
+    if name.contains('/') {
+        return name.to_string();
+    }
+    eprintln!("reverie: unknown model alias '{name}'. Use an alias from `reverie models` or a Hugging Face id like org/name.");
+    let close: Vec<&str> = MODELS.iter().map(|m| m.0).filter(|a| a.starts_with(&key[..key.len().min(4)])).collect();
+    if !close.is_empty() {
+        eprintln!("         did you mean: {}", close.join(", "));
+    }
+    std::process::exit(2);
+}
+
+fn vram_desc(cfg: &Config) -> String {
+    if cfg.lm_vram_gb <= 0.0 {
+        "GPU cap auto (card memory - 2 GB)".to_string()
+    } else {
+        format!("GPU cap {} GB", cfg.lm_vram_gb)
+    }
 }
 
 fn models_cmd(cfg: &Config) -> i32 {
@@ -600,11 +621,11 @@ fn main() {
             println!("colour:      {}", if cfg.truecolor() { "truecolor" } else { "256" });
             println!("pilots:      {}", cfg.ufo_pilots);
             println!(
-                "lm:          {} vs {} ({} backend, {} GB, {}, evolve {})",
+                "lm:          {} vs {} ({} backend, {}, {}, evolve {})",
                 cfg.lm_model_a,
                 cfg.lm_model_b,
                 cfg.lm_backend,
-                cfg.lm_vram_gb,
+                vram_desc(&cfg),
                 cfg.lm_python,
                 if cfg.lm_evolve { "on" } else { "off" }
             );
