@@ -254,7 +254,6 @@ const MODELS: &[(&str, &str, f32, &str)] = &[
     ("qwen2.5-1.5b", "Qwen/Qwen2.5-1.5B-Instruct", 3.1, ""),
     ("smollm2-360m", "HuggingFaceTB/SmolLM2-360M-Instruct", 0.7, "under 1B: often skips the order format (ships keep their last order)"),
     ("smollm2-1.7b", "HuggingFaceTB/SmolLM2-1.7B-Instruct", 3.4, "default for KRELL; good instruction following"),
-    ("llama3.2-1b", "unsloth/Llama-3.2-1B-Instruct", 2.5, "Meta's Llama 3.2 1B, ungated mirror"),
     ("gemma3-1b", "unsloth/gemma-3-1b-it", 2.0, "Google's Gemma 3 1B, ungated mirror"),
     ("lfm2-1.2b", "LiquidAI/LFM2-1.2B", 2.3, "Liquid AI, built for on-device use"),
     ("lfm2-700m", "LiquidAI/LFM2-700M", 1.5, "under 1B: often skips the order format"),
@@ -282,7 +281,7 @@ fn models_cmd(cfg: &Config) -> i32 {
     }
     println!("\n* = current pair ({} vs {}).", cfg.lm_model_a, cfg.lm_model_b);
     println!("all of these are ungated (no licence click-through, no token).");
-    println!("swap: reverie --zorb lfm2-1.2b --krell llama3.2-1b        (alias or any Hugging Face id, `id@revision` to pin)");
+    println!("swap: reverie --zorb lfm2-1.2b --krell gemma3-1b          (alias or any Hugging Face id, `id@revision` to pin)");
     println!("keep: lm_model_a / lm_model_b in {}", config::config_path().display());
     println!("then: reverie arena pull   (download)   reverie arena check --load   (measure peak memory)");
     println!("mlx: the same ids work through mlx-lm; mlx-community/<name>-4bit repos are smaller and faster.");

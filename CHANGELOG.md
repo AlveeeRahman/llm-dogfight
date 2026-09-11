@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3 — 2026-09-10
+
+- Llama removed from the catalogue (Meta's repositories are gated; no Llama entry at all now).
+
 ## 0.3.2 — 2026-09-10
 
 - `reverie remove` now also deletes the rc-file backups and the models it downloaded (only

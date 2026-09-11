@@ -94,7 +94,6 @@ model is **ungated**: no licence click-through, no token.
 | `qwen2.5-1.5b` | Qwen/Qwen2.5-1.5B-Instruct | 3.1 GB | |
 | `smollm2-360m` | HuggingFaceTB/SmolLM2-360M-Instruct | 0.7 GB | under 1B: often skips the order format |
 | `smollm2-1.7b` | HuggingFaceTB/SmolLM2-1.7B-Instruct | 3.4 GB | default for KRELL |
-| `llama3.2-1b` | unsloth/Llama-3.2-1B-Instruct | 2.5 GB | Meta's Llama 3.2 1B, ungated mirror |
 | `gemma3-1b` | unsloth/gemma-3-1b-it | 2.0 GB | Google's Gemma 3 1B, ungated mirror |
 | `lfm2-1.2b` | LiquidAI/LFM2-1.2B | 2.3 GB | Liquid AI, built for on-device use |
 | `lfm2-700m` | LiquidAI/LFM2-700M | 1.5 GB | under 1B: often skips the order format |
@@ -107,7 +106,7 @@ model is **ungated**: no licence click-through, no token.
 | `qwen2.5-3b` | Qwen/Qwen2.5-3B-Instruct | 6.2 GB | `lm_quant = "8bit"` next to a partner |
 
 ```sh
-reverie --zorb lfm2-1.2b --krell llama3.2-1b     # try a pair once
+reverie --zorb lfm2-1.2b --krell gemma3-1b       # try a pair once
 reverie arena check --load                        # confirm both load and see the peak GPU memory
 ```
 
@@ -115,8 +114,8 @@ To keep a pair, set `lm_model_a` and `lm_model_b` in the config. Any Hugging Fac
 a chat template and safetensors weights works; append `@<commit>` to pin the weights. On MLX
 the same ids work through mlx-lm, and the `mlx-community/*-4bit` repos are smaller and faster.
 Sizes above are bf16 safetensors as reported by the Hugging Face API in September 2026. The
-defaults and the 1B-class entries (Llama 3.2, Gemma 3, LFM2, OLMo 2, Falcon3, danube3, SmolLM2
-360M, Qwen2.5 0.5B) were each loaded and asked for orders; the 1B-and-up models answer in the
+defaults and the 1B-class entries (Gemma 3, LFM2, OLMo 2, Falcon3, danube3, SmolLM2 360M,
+Qwen2.5 0.5B) were each loaded and asked for orders; the 1B-and-up models answer in the
 format almost every time, the sub-1B ones often don't (a saucer without a new order keeps its
 last one, so the fight goes on either way). The 3B-class entries are listed on size alone. Models whose chat template has no system role
 (h2o-danube, Gemma 2) get the system prompt folded into the user turn automatically.
