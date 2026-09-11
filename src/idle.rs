@@ -79,7 +79,7 @@ fn proc_stat(pid: i32) -> Option<ProcStat> {
     // A shell at its prompt has no children (the watcher itself is daemonized, so it is not
     // one). This is independent of how the shell handles process groups, which zsh does
     // differently from bash and fish on some systems.
-    let busy = fs::read_to_string(format!("/proc/{pid}/task/{pid}/children")).map(|c| !c.trim().is_empty()).unwrap_or(false);
+    let busy = has_child(pid);
     Some(ProcStat { sleeping: f.first()?.starts_with('S'), pgrp: f.get(2)?.parse().ok()?, tpgid: f.get(5)?.parse().ok()?, busy })
 }
 
@@ -97,6 +97,33 @@ fn proc_stat(pid: i32) -> Option<ProcStat> {
         sleeping: f.get(2).map_or(true, |st| st.starts_with('S') || st.starts_with('I')),
         busy,
     })
+}
+
+/// Does any process have `pid` as its parent? A scan of /proc (a few hundred entries every
+/// few seconds); `/proc/<pid>/task/<pid>/children` would be cheaper but needs a kernel option.
+#[cfg(target_os = "linux")]
+fn has_child(pid: i32) -> bool {
+    let want = format!(" {pid} ");
+    let Ok(rd) = fs::read_dir("/proc") else { return false };
+    for e in rd.flatten() {
+        let name = e.file_name();
+        if !name.to_string_lossy().bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        let Ok(stat) = fs::read_to_string(e.path().join("stat")) else { continue };
+        // fields after the ")" of the command name: state ppid pgrp ...
+        if let Some(i) = stat.rfind(')') {
+            let rest = &stat[i + 1..];
+            let mut it = rest.split_whitespace();
+            it.next(); // state
+            if let Some(ppid) = it.next() {
+                if format!(" {ppid} ") == want {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// The shell's terminal: `--tty` from the shell snippet, else (Linux) its stdin link.
