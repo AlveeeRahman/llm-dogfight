@@ -14,25 +14,29 @@
 
 </div>
 
-Type `dogfight`. Team **ZORB** and team **KRELL**, each commanded by a different local model,
-start fighting over a sleeping city: they chase, retreat, steal cows, shout at each other, and
-learn from every saucer they lose. Any key ends it.
+Type `dogfight` and two saucer teams appear over a sleeping city. Team **ZORB** and team
+**KRELL** are each commanded by a different small language model running on your machine. Once
+a second, every commander reads a short description of the field and gives each saucer an
+order: attack, hunt, flee, or go and steal a cow. They shout at each other when they lose a
+ship, and they write down what went wrong so it does not happen twice. Press any key and the
+fight is over, and your terminal is exactly as you left it.
 
 ![The commanders talk: battle cries and lessons in the HUD](eval/snapshots/hud.png)
 
-- **Runs anywhere text runs.** Plain truecolor text (half-blocks and braille), no graphics
-  protocol: the default Ubuntu terminal, GNOME Terminal, Ptyxis, kitty, iTerm2, Ghostty, on
-  Linux and macOS.
-- **Small and safe.** A 0.8 MB Rust binary with one dependency; the models live in a Python
-  sidecar on CUDA or Apple MLX. Everything a model says is filtered before it reaches your
-  terminal, and any key gives the terminal back exactly as it was. `dogfight remove` leaves
-  nothing behind.
-- **Scales with your machine.** The defaults need 2.2 GB and fit any CUDA card; `dogfight models` measures
-  your GPU or unified memory and names the strongest pair it can hold, up to 14B on big cards
-  and Macs.
-- **Delivered continuously.** Every push runs lint, audit, benchmark and terminal harness on
-  Linux and macOS; every release ships binaries to GitHub and mirrors them to a Hugging Face
-  Space; a weekly job confirms every catalogue model is still public on Hugging Face.
+- **It runs wherever text runs.** The picture is plain truecolor text, half-blocks and braille,
+  with no graphics protocol involved. The default Ubuntu terminal is enough, and so are GNOME
+  Terminal, Ptyxis, kitty, iTerm2 and Ghostty, on Linux and macOS.
+- **It is small, and it is careful with your terminal.** The game is a 0.8 MB Rust binary with
+  a single dependency. The models live in a Python sidecar on CUDA or Apple MLX. Everything a
+  model says is filtered before it can reach the screen, any key hands the terminal back
+  untouched, and `dogfight remove` takes everything with it.
+- **It grows with your hardware.** The default pair needs 2.2 GB and fits any CUDA card.
+  `dogfight models` looks at your GPU or unified memory and tells you the strongest pair it can
+  hold, up to 14B models on large cards and Macs.
+- **It is tested the way a tool that takes over your terminal should be.** Every push runs the
+  linters, a security audit, a frame benchmark and a terminal harness on Linux and macOS. Every
+  release ships binaries to GitHub and mirrors them to a Hugging Face Space, and a weekly job
+  checks that every model in the catalogue is still public.
 
 ## Quick start
 
@@ -49,6 +53,7 @@ dogfight                          # first run downloads the two default models (
 ```
 
 No GPU? `dogfight ufo` runs the same fight with the built-in pilots and needs nothing else.
+`dogfight cpu` runs the real models on the processor: slow, but it works.
 
 ## Commands
 
@@ -71,8 +76,8 @@ Battle options: `--lessons on|off`, `--fps N`, `--seed N`, `--duration SECS`, `-
 
 ## Recommended matchups
 
-Pairs played through many full games on an RTX 4000 Ada. Each is a proper fight: both sides
-score, the lead changes, and the models' characters show.
+These pairs were played through many full games on an RTX 4000 Ada. Each one is a proper
+fight: both sides score, the lead changes hands, and the two models show their characters.
 
 ```sh
 dogfight --zorb qwen3-0.6b    --krell smollm2-360m    # the defaults, 2.2 GB: decisions in a tenth of a second, fast and messy
@@ -85,36 +90,38 @@ Add `evolve` to any of them (`dogfight evolve --zorb ... --krell ...`) to let th
 
 ## Models
 
-Every catalogue model is **ungated**: no licence click-through, no account, no token.
-`dogfight models` prints the table below with a verdict for *your* machine and the strongest
-balanced pair it can hold.
+Every model in the catalogue is **ungated**: no licence click-through, no account, no token.
+`dogfight models` prints the same table with a verdict for your machine and the strongest
+balanced pair it can hold. Sizes are the bf16 safetensors as reported by the Hugging Face API
+in September 2026.
 
-| alias | model | bf16 | for |
+| alias | model | bf16 | notes |
 |---|---|---|---|
-| `qwen3-0.6b` | Qwen/Qwen3-0.6B | 1.5 GB | default for ZORB; fast and decisive |
-| `smollm2-1.7b` | HuggingFaceTB/SmolLM2-1.7B-Instruct | 3.4 GB | the classic KRELL; good instruction following |
-| `qwen3-1.7b` | Qwen/Qwen3-1.7B | 4.1 GB | the strongest small Qwen |
-| `qwen2.5-0.5b`, `qwen2.5-1.5b` | Qwen 2.5 Instruct | 1.0, 3.1 GB | |
-| `gemma3-1b` | unsloth/gemma-3-1b-it | 2.0 GB | Gemma 3, ungated mirror |
-| `lfm2-1.2b`, `lfm2-700m` | Liquid AI LFM2 | 2.3, 1.5 GB | built for on-device use |
-| `olmo2-1b` | allenai/OLMo-2-0425-1B-Instruct | 3.0 GB | fully open recipe; likes cows |
-| `falcon3-1b` | tiiuae/Falcon3-1B-Instruct | 3.3 GB | |
-| `smollm2-360m` | HuggingFaceTB/SmolLM2-360M-Instruct | 0.7 GB | default for KRELL; tiny and fast |
-| `danube3-500m` | h2oai/h2o-danube3-500m-chat | 1.0 GB | sub-1B: fast, often skips the order format |
-| `deepseek-r1-1.5b` | DeepSeek-R1-Distill-Qwen-1.5B | 3.6 GB | thinks out loud; slow |
-| `granite3.3-2b`, `smollm3-3b`, `qwen2.5-3b` | IBM Granite 3.3 2B, SmolLM3 3B, Qwen2.5 3B | 5.1, 6.2, 6.2 GB | 12 GB cards, or `lm_quant = "8bit"` on 8 GB |
-| `qwen3-4b`, `phi4-mini` | Qwen3 4B, Phi-4-mini | 8.0, 7.7 GB | 12 GB+ cards; the best mid-size commanders |
-| `olmo2-7b`, `qwen2.5-7b` | OLMo 2 7B, Qwen2.5 7B | 14.6, 15.2 GB | 20 GB+ cards |
-| `qwen3-8b`, `granite3.3-8b` | Qwen3 8B, Granite 3.3 8B | 16.4, 16.3 GB | 24 GB+ cards |
-| `qwen3-14b` | Qwen3 14B | 29.5 GB | 48 GB cards, or `8bit` on 24 GB |
+| `qwen3-0.6b` | Qwen/Qwen3-0.6B | 1.5 GB | Default commander of ZORB. Fast and decisive: an answer in about a tenth of a second, and it rarely breaks the order format. |
+| `smollm2-360m` | HuggingFaceTB/SmolLM2-360M-Instruct | 0.7 GB | Default commander of KRELL. The smallest model that still plays; very quick, and it sometimes skips the order format. |
+| `smollm2-1.7b` | HuggingFaceTB/SmolLM2-1.7B-Instruct | 3.4 GB | The original KRELL. Follows instructions closely and plays a cautious game. |
+| `qwen3-1.7b` | Qwen/Qwen3-1.7B | 4.1 GB | The strongest Qwen that fits an 8 GB card next to a small partner. |
+| `qwen2.5-0.5b`, `qwen2.5-1.5b` | Qwen/Qwen2.5-0.5B-Instruct, Qwen/Qwen2.5-1.5B-Instruct | 1.0, 3.1 GB | The previous Qwen generation. Compact and quick; a sound partner when memory is tight. |
+| `gemma3-1b` | unsloth/gemma-3-1b-it | 2.0 GB | Google's Gemma 3 1B through an ungated mirror. Makes the most even of the small matchups against Qwen3-0.6B. |
+| `lfm2-1.2b`, `lfm2-700m` | LiquidAI/LFM2-1.2B, LiquidAI/LFM2-700M | 2.3, 1.5 GB | Liquid AI's models, designed for on-device inference. The 700M build often skips the order format. |
+| `olmo2-1b` | allenai/OLMo-2-0425-1B-Instruct | 3.0 GB | A fully open training recipe from Ai2. Fond of abducting cows. |
+| `falcon3-1b` | tiiuae/Falcon3-1B-Instruct | 3.3 GB | The 1B instruct build of TII's Falcon 3 series. |
+| `danube3-500m` | h2oai/h2o-danube3-500m-chat | 1.0 GB | Under a billion parameters: very fast, and it often skips the order format. |
+| `deepseek-r1-1.5b` | deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B | 3.6 GB | A reasoning model that thinks out loud. Its orders arrive late, and it talks a lot. |
+| `granite3.3-2b`, `smollm3-3b`, `qwen2.5-3b` | ibm-granite/granite-3.3-2b-instruct, HuggingFaceTB/SmolLM3-3B, Qwen/Qwen2.5-3B-Instruct | 5.1, 6.2, 6.2 GB | The strongest of the small class. Needs a 12 GB card, or `lm_quant = "8bit"` on 8 GB. |
+| `qwen3-4b`, `phi4-mini` | Qwen/Qwen3-4B, microsoft/Phi-4-mini-instruct | 8.0, 7.7 GB | The best mid-size commanders. Needs a 12 GB card or more. |
+| `olmo2-7b`, `qwen2.5-7b` | allenai/OLMo-2-1124-7B-Instruct, Qwen/Qwen2.5-7B-Instruct | 14.6, 15.2 GB | Needs a 20 GB card or more. |
+| `qwen3-8b`, `granite3.3-8b` | Qwen/Qwen3-8B, ibm-granite/granite-3.3-8b-instruct | 16.4, 16.3 GB | Needs a 24 GB card or more. On a Mac, use the 4-bit MLX build (see below). |
+| `qwen3-14b` | Qwen/Qwen3-14B | 29.5 GB | Needs a 48 GB card, or `lm_quant = "8bit"` on 24 GB, or the 4-bit MLX build. |
 
-Sizes are bf16 safetensors from the Hugging Face API, September 2026. Any Hugging Face model
-with a chat template and safetensors weights works by id; append `@<commit>` to pin the weights.
+Any Hugging Face model with a chat template and safetensors weights works by id, with
+`@<commit>` appended to pin the weights.
 
 ### Models without guardrails
 
-The catalogue models are aligned instruct models; they never refuse an order, but their battle
-cries stay polite. "Abliterated" builds have the refusal behaviour removed, and the same ids work:
+The catalogue models are aligned instruct models. They never refuse an order, but their battle
+cries stay polite. "Abliterated" builds have had the refusal behaviour removed, and they work by
+the same ids:
 
 ```sh
 dogfight --zorb mlabonne/gemma-3-1b-it-abliterated --krell Goekdeniz-Guelmez/Josiefied-Qwen3-1.7B-abliterated-v1   # 5.4 GB
@@ -122,11 +129,11 @@ dogfight --zorb mlabonne/gemma-3-1b-it-abliterated --krell Goekdeniz-Guelmez/Jos
 
 ![Abliterated commanders and their language](eval/snapshots/abliterated.png)
 
-Everything a model says is still filtered to printable ASCII before it reaches the terminal,
-so the worst it can do is be rude. These repositories are ungated too, but Hugging Face
-throttles anonymous downloads; a free account and a read token (`hf auth login`, or
-`export HF_TOKEN=hf_...`) lift the limit, and the tool picks the token up automatically. A
-download that hits the limit says so and retries.
+Everything a model says is still reduced to printable ASCII before it reaches the terminal,
+so the worst it can do is be rude. These repositories are ungated too, but Hugging Face slows
+anonymous downloads. A free account and a read token (`hf auth login`, or
+`export HF_TOKEN=hf_...`) lift the limit, and the tool picks the token up on its own. A download
+that hits the limit says so and retries.
 
 ### Bigger machines
 
@@ -264,7 +271,7 @@ frame gap and CPU share. If your terminal struggles, set `fps = 30`.
 
 ## Security and quality
 
-The tool takes over your terminal, so it is built to be small, memory-safe and auditable:
+The tool takes over your terminal, so it is built to be small, memory-safe and easy to audit:
 
 - one dependency (`libc`); `cargo audit`, `cargo clippy -D warnings`, `cargo fmt --check` and
   `--locked` builds are CI gates; every `unsafe` block carries a justification that clippy
@@ -298,6 +305,6 @@ dogfight bench --size 200x55 | python3 eval/check_bench.py /dev/stdin     # fram
 dogfight snapshot --scene ufo --out u.ansi && python3 eval/ansi2png.py u.ansi u.png   # deterministic frame to PNG
 ```
 
-Contributions are welcome through pull requests; the CI gate is the review's first step.
+Contributions are welcome as pull requests. The CI gate runs first, and then a human reads it.
 
 MIT licensed.
