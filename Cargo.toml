@@ -1,12 +1,16 @@
 [package]
-name = "reverie"
-version = "0.3.7"
+name = "llm-dogfight"
+version = "0.4.0"
 edition = "2021"
 description = "A UFO dogfight in your terminal, flown by two small local language models (CUDA or Apple MLX); optional idle-screensaver mode."
 license = "MIT"
 readme = "README.md"
-keywords = ["terminal", "screensaver", "tui", "ascii-art", "animation"]
-categories = ["command-line-utilities"]
+keywords = ["llm", "terminal", "game", "ai", "tui"]
+categories = ["command-line-utilities", "games"]
+
+[[bin]]
+name = "dogfight"
+path = "src/main.rs"
 
 [dependencies]
 libc = "0.2"

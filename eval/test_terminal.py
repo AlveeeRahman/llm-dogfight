@@ -46,7 +46,7 @@ class Shell:
         if self.rec: self.rec.close()
 
 def make_env(tmp, shell, idle):
-    cfg = os.path.join(tmp, "cfg", "reverie"); os.makedirs(cfg, exist_ok=True)
+    cfg = os.path.join(tmp, "cfg", "dogfight"); os.makedirs(cfg, exist_ok=True)
     open(os.path.join(cfg, "config.toml"), "w").write(
         f'idle_seconds = {idle}\nscenes = ["ufo"]\nrotate_minutes = 0.1\nfps = 30\n')
     env = dict(os.environ, TERM="xterm-256color", COLORTERM="truecolor", HOME=tmp,
@@ -54,15 +54,15 @@ def make_env(tmp, shell, idle):
                XDG_DATA_HOME=os.path.join(tmp, "data"), XDG_RUNTIME_DIR=os.path.join(tmp, "run"))
     os.makedirs(env["XDG_RUNTIME_DIR"], exist_ok=True)
     if shell == "bash":
-        rc = os.path.join(tmp, "bashrc"); open(rc, "w").write("PS1='demo:~$ '\n" + os.popen("reverie init bash").read())
+        rc = os.path.join(tmp, "bashrc"); open(rc, "w").write("PS1='demo:~$ '\n" + os.popen("dogfight init bash").read())
         env["RCFILE"] = rc
     elif shell == "zsh":
         zd = os.path.join(tmp, "zdot"); os.makedirs(zd, exist_ok=True)
-        open(os.path.join(zd, ".zshrc"), "w").write("PS1='demo:~$ '\n" + os.popen("reverie init zsh").read())
+        open(os.path.join(zd, ".zshrc"), "w").write("PS1='demo:~$ '\n" + os.popen("dogfight init zsh").read())
         env["ZDOTDIR"] = zd
     else:
         rc = os.path.join(tmp, "rc.fish")
-        open(rc, "w").write("function fish_prompt; echo -n 'demo:~$ '; end\n" + os.popen("reverie init fish").read())
+        open(rc, "w").write("function fish_prompt; echo -n 'demo:~$ '; end\n" + os.popen("dogfight init fish").read())
         env["RCFILE"] = rc
     return env
 
@@ -76,7 +76,7 @@ def test_run_and_restore(tmp):
     print("[run/restore]")
     env = make_env(tmp, "bash", 300)
     sh = Shell("bash", env); sh.pump(1.5, b"demo:~$ ")
-    sh.send(b"stty -g > before.txt; reverie run --scene ufo; echo RC_$?; stty -g > after.txt\r")
+    sh.send(b"stty -g > before.txt; dogfight run --scene ufo; echo RC_$?; stty -g > after.txt\r")
     started = sh.pump(3.0, ENTER_ALT)
     sh.pump(1.5)
     t0 = time.time(); sh.send(b"x")
@@ -90,15 +90,15 @@ def test_run_and_restore(tmp):
     a = open(os.path.join(tmp, "before.txt")).read() if os.path.exists(os.path.join(tmp, "before.txt")) else "?"
     b = open(os.path.join(tmp, "after.txt")).read() if os.path.exists(os.path.join(tmp, "after.txt")) else "!"
     check("restore_termios", a == b and a != "?")
-    # SIGTERM path: reverie in the FOREGROUND, SIGTERM from outside (as a logout/kill would).
-    # (A backgrounded `reverie &` is stopped by SIGTTOU when it touches the tty — that tested
-    #  job control, not reverie. Fixed 2026-09-10, see CHANGELOG.)
-    sh.send(b"reverie run --scene ufo; echo TERM_DONE; stty -g > after2.txt\r")
+    # SIGTERM path: dogfight in the FOREGROUND, SIGTERM from outside (as a logout/kill would).
+    # (A backgrounded `dogfight &` is stopped by SIGTTOU when it touches the tty — that tested
+    #  job control, not dogfight. Fixed 2026-09-10, see CHANGELOG.)
+    sh.send(b"dogfight run --scene ufo; echo TERM_DONE; stty -g > after2.txt\r")
     sh.pump(2.0, ENTER_ALT); sh.pump(1.0)
     for p in os.listdir("/proc"):
         if p.isdigit():
             try:
-                if open(f"/proc/{p}/cmdline", "rb").read().startswith(b"reverie\0run"):
+                if open(f"/proc/{p}/cmdline", "rb").read().startswith(b"dogfight\0run"):
                     os.kill(int(p), signal.SIGTERM)
             except OSError: pass
     sh.pump(4.0, b"TERM_DONE"); sh.pump(0.5)
@@ -146,7 +146,7 @@ def watcher_rss():
         if not p.isdigit(): continue
         try:
             cmd = open(f"/proc/{p}/cmdline", "rb").read().split(b"\0")
-            if cmd[0].endswith(b"reverie") and len(cmd) > 1 and cmd[1] == b"watch":
+            if cmd[0].endswith(b"dogfight") and len(cmd) > 1 and cmd[1] == b"watch":
                 for l in open(f"/proc/{p}/status"):
                     if l.startswith("VmRSS"): best = max(best, int(l.split()[1]) / 1024)
         except OSError: pass
@@ -164,8 +164,8 @@ if __name__ == "__main__":
             test_idle(tmp, sh, a.record if (a.record and i == 0) else None)
     rss = max(RSS) if RSS else 0
     check("watcher_rss_mb<=4", 0 < rss <= 4.0, f"{rss:.2f} MB")
-    os.system("pkill -f 'reverie watch' 2>/dev/null")
+    os.system("pkill -f 'dogfight watch' 2>/dev/null")
     ok = all(results.values())
     print(f"\n{sum(results.values())}/{len(results)} checks passed -> {'ALL PASS' if ok else 'FAILURES'}")
-    json.dump(results, open("/tmp/reverie_correctness.json", "w"))
+    json.dump(results, open("/tmp/dogfight_correctness.json", "w"))
     sys.exit(0 if ok else 1)

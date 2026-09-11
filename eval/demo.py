@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Record a real reverie session in a pty (timestamped) and render it to MP4.
+"""Record a real dogfight session in a pty (timestamped) and render it to MP4.
 
-Everything shown is reverie's actual terminal output replayed through a small
+Everything shown is dogfight's actual terminal output replayed through a small
 VT emulator — nothing is mocked. Waiting periods are time-compressed and labelled.
 """
 import os, sys, time, json, re, tempfile, subprocess
@@ -24,7 +24,7 @@ def record(path):
     tmp = tempfile.mkdtemp()
     os.chdir(tmp)
     env = T.make_env(tmp, "bash", 6)
-    cfg = os.path.join(tmp, "cfg", "reverie", "config.toml")
+    cfg = os.path.join(tmp, "cfg", "dogfight", "config.toml")
     open(cfg, "w").write('idle_seconds = 6\nscenes = ["ufo"]\nrotate_minutes = 0.16\nfps = 30\n')
     sh = T.Shell("bash", env)
     t0 = time.time(); log = []; events = []
@@ -62,14 +62,14 @@ def record(path):
     pump(1.2)
     os.write(sh.fd, b"\x15")  # (don't actually commit) — clear line with ^U
     pump(0.4)
-    type_("reverie list\r"); pump(1.5)
+    type_("dogfight list\r"); pump(1.5)
     ev("end")
     sh.close()
-    os.system("pkill -f 'reverie watch' 2>/dev/null")
+    os.system("pkill -f 'dogfight watch' 2>/dev/null")
     json.dump({"events": events, "chunks": [(t, d.hex()) for t, d in log]}, open(path, "w"))
     print(f"recorded {len(log)} chunks, {sum(len(d) for _, d in log)/1e6:.1f} MB of terminal output, {events[-1][0]:.1f}s")
 
-# ------------------------------------------------------------------ tiny VT emulator (enough for bash + reverie)
+# ------------------------------------------------------------------ tiny VT emulator (enough for bash + dogfight)
 CSI = re.compile(rb"\x1b\[([?0-9;]*)([@A-Za-z])")
 OSC = re.compile(rb"\x1b\][^\x07\x1b]*(\x07|\x1b\\)")
 DEF_FG, DEF_BG = (222, 222, 222), (23, 23, 23)
@@ -196,11 +196,11 @@ class VT:
 
 # ------------------------------------------------------------------ render
 CAPTIONS = [
-    ("start", "Ubuntu terminal · bash with `reverie install` · idle_seconds = 6 (default 300)"),
-    ("cmd", "A command is running → reverie stays silent (the shell doesn't own the terminal)"),
+    ("start", "Ubuntu terminal · bash with `dogfight install` · idle_seconds = 6 (default 300)"),
+    ("cmd", "A command is running → dogfight stays silent (the shell doesn't own the terminal)"),
     ("typing2", "Back at the prompt. Type half a command… then walk away"),
     ("idle", "Prompt idle… the 1.5 MB watcher sends SIGALRM when the tty goes quiet"),
-    ("saver", "reverie takes over — scenes rotate with crossfades (demo: 10 s each)"),
+    ("saver", "dogfight takes over — scenes rotate with crossfades (demo: 10 s each)"),
     ("key", "Any key → back instantly. The half-typed command is still there, key not leaked"),
     ("back", "Back at the prompt, exactly as you left it"),
 ]
@@ -251,7 +251,7 @@ def render(rec_path, out_mp4, fps=30):
         cy = y0 + 44 + term.height + 18
         d.text((x0 + 4, cy), current_cap, font=cap_font, fill=(235, 235, 235))
         tag = f"{sp:.0f}× speed" if sp > 1 else "real time"
-        d.text((x0 + 4, cy + 28), f"real reverie output replayed from a pty · {tag}", font=small, fill=(140, 150, 165))
+        d.text((x0 + 4, cy + 28), f"real dogfight output replayed from a pty · {tag}", font=small, fill=(140, 150, 165))
         ff.stdin.write(frame.tobytes())
         if vi % 300 == 0: print(f"  frame {vi}/{len(samples)}", flush=True)
     ff.stdin.close(); ff.wait()

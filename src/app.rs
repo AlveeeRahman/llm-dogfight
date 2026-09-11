@@ -9,7 +9,7 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 pub struct RunOpts {
-    /// `--perf FILE` (or REVERIE_PERF=FILE): one line per second of frame timings
+    /// `--perf FILE` (or DOGFIGHT_PERF=FILE): one line per second of frame timings
     pub perf: Option<String>,
     pub scene: Option<String>,
     /// `--pilots builtin|lm` overrides `ufo_pilots` from the config
@@ -161,12 +161,12 @@ pub fn run(cfg: &Config, opts: RunOpts) -> i32 {
     let mut term = match Term::open() {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("reverie: no terminal: {e}");
+            eprintln!("dogfight: no terminal: {e}");
             return 1;
         }
     };
     if let Err(e) = term.enter() {
-        eprintln!("reverie: cannot configure terminal: {e}");
+        eprintln!("dogfight: cannot configure terminal: {e}");
         return 1;
     }
     let seed = opts.seed.unwrap_or_else(clock_seed);
@@ -184,7 +184,7 @@ pub fn run(cfg: &Config, opts: RunOpts) -> i32 {
         Some(s) => s,
         None => {
             term.leave();
-            eprintln!("reverie: no valid scene in {:?} (try `reverie list`)", list);
+            eprintln!("dogfight: no valid scene in {:?} (try `dogfight list`)", list);
             return 2;
         }
     };
@@ -197,7 +197,7 @@ pub fn run(cfg: &Config, opts: RunOpts) -> i32 {
     let started = Instant::now();
     let mut last = Instant::now();
     let mut out: Vec<u8> = Vec::with_capacity(1 << 16);
-    let perf_env = std::env::var("REVERIE_PERF").ok();
+    let perf_env = std::env::var("DOGFIGHT_PERF").ok();
     let mut perf = Perf::new(opts.perf.as_deref().or(perf_env.as_deref()));
     // lag guard: a terminal that cannot drain our bytes makes write() block; when that keeps
     // happening, halve the frame rate for a few seconds instead of letting the animation stutter

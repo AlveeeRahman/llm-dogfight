@@ -19,10 +19,10 @@ pub trait Scene {
 
 pub const NAMES: &[(&str, &str)] = &[
     ("ufo", "Saucer factions dogfight over a sleeping city (built-in pilots, no GPU)"),
-    ("ufo-battle", "The same dogfight commanded by two small language models: `reverie run cuda|mlx ufo-battle`"),
+    ("ufo-battle", "The same dogfight commanded by two small language models: `dogfight run cuda|mlx ufo-battle`"),
 ];
 
-/// `live` is true for an interactive run (screensaver / `reverie run`). Bench and snapshot
+/// `live` is true for an interactive run (screensaver / `dogfight run`). Bench and snapshot
 /// pass false and always get the deterministic built-in pilots.
 pub fn make(name: &str, seed: u64, w: usize, h: usize, cfg: &Config, live: bool) -> Option<Box<dyn Scene>> {
     let mut s: Box<dyn Scene> = match name {

@@ -1,9 +1,9 @@
-# reverie
+# LLM Dogfight
 
-![reverie: two saucer teams dogfighting over a sleeping city](eval/snapshots/ufo.png)
+![LLM Dogfight: two saucer teams dogfighting over a sleeping city](eval/snapshots/ufo.png)
 
 **A UFO dogfight in your terminal, flown by two small language models running on your own
-machine.** Type `reverie`. Team ZORB and team KRELL, each commanded by a different local model,
+machine.** Type `dogfight`. Team ZORB and team KRELL, each commanded by a different local model,
 start fighting over a sleeping city: they chase, retreat, steal cows, shout at each other, and
 learn from every saucer they lose. Any key ends it.
 
@@ -15,39 +15,39 @@ run in a small Python sidecar on CUDA or Apple MLX and fit an 8 GB GPU.
 ## Quick start
 
 ```sh
-# 1. the tool
-cargo install --path .            # or drop a release binary on your PATH
+# 1. the tool (Rust toolchain: https://rustup.rs), or a release binary from the Releases page
+cargo install --git https://github.com/AlveeeRahman/llm-dogfight
 
 # 2. a model runtime (one of these)
 pip install torch transformers    # NVIDIA GPU with 8 GB or more (a CUDA build of torch)
 pip install mlx-lm                # Apple silicon Mac
 
 # 3. play
-reverie                           # first run downloads the two default models (~5 GB)
+dogfight                           # first run downloads the two default models (~5 GB)
 ```
 
-No GPU? `reverie ufo` runs the same dogfight with the built-in pilots and needs nothing but
+No GPU? `dogfight ufo` runs the same dogfight with the built-in pilots and needs nothing but
 the binary.
 
 ## Commands
 
 | command | what it does |
 |---|---|
-| `reverie` | start a battle; picks CUDA, or MLX on Apple silicon |
-| `reverie cuda` / `reverie mlx` | start a battle with the backend chosen by hand |
-| `reverie evolve` | start a battle where a genetic algorithm also evolves each team's tactics |
-| `reverie ufo` | the built-in pilots: no models, no GPU |
-| `reverie models` | the model catalogue and what fits your GPU |
-| `reverie --zorb MODEL --krell MODEL` | pick the two commanders (an alias from the catalogue or any Hugging Face id) |
-| `reverie arena check --load` | verify Python, GPU and models; load both and time a decision |
-| `reverie arena pull` | download the models ahead of time |
-| `reverie arena lessons` | what each commander has learned so far |
-| `reverie reset model \| score \| all` | forget the lessons, the games won, or both |
-| `reverie install` / `reverie uninstall` | optional screensaver mode: play whenever your shell sits idle |
-| `reverie remove` | delete everything reverie put on the machine: config, memories, downloaded models, itself |
+| `dogfight` | start a battle; picks CUDA, or MLX on Apple silicon |
+| `dogfight cuda` / `dogfight mlx` | start a battle with the backend chosen by hand |
+| `dogfight evolve` | start a battle where a genetic algorithm also evolves each team's tactics |
+| `dogfight ufo` | the built-in pilots: no models, no GPU |
+| `dogfight models` | the model catalogue and what fits your GPU |
+| `dogfight --zorb MODEL --krell MODEL` | pick the two commanders (an alias from the catalogue or any Hugging Face id) |
+| `dogfight arena check --load` | verify Python, GPU and models; load both and time a decision |
+| `dogfight arena pull` | download the models ahead of time |
+| `dogfight arena lessons` | what each commander has learned so far |
+| `dogfight reset model \| score \| all` | forget the lessons, the games won, or both |
+| `dogfight install` / `dogfight uninstall` | optional screensaver mode: play whenever your shell sits idle |
+| `dogfight remove` | delete everything dogfight put on the machine: config, memories, downloaded models, itself |
 
 Options for a battle: `--lessons on|off`, `--fps N`, `--seed N`, `--duration SECS`,
-`--perf FILE`. `reverie --help` lists everything.
+`--perf FILE`. `dogfight --help` lists everything.
 
 ## How a battle works
 
@@ -56,7 +56,7 @@ budget of 20 reinforcements per game; when a team has nothing in the air and not
 send, it loses the game. Ten seconds later the next game starts, and the loser fields an extra
 saucer. Score is kills plus cows abducted; games won are remembered per model pair. A game
 lasts about a minute and a half. Every kill, reinforcement, abduction and result is one line in
-`~/.local/state/reverie/match.log`.
+`~/.local/state/dogfight/match.log`.
 
 Saucers fire one bolt at a time: the next shot comes 200 ms after the previous one has hit or
 faded, so a fight is a stream of single shots rather than volleys.
@@ -84,17 +84,17 @@ commander that leaves the fight for a cow when the enemy is far is reading the f
 weighing points against risk; one that beams cows under fire is greedy; one that never goes
 for a cow at all is either cautious or simply not reading the openings the prompt spells out.
 
-**Evolve.** With `reverie evolve`, a genetic algorithm scores each team's active doctrine over
+**Evolve.** With `dogfight evolve`, a genetic algorithm scores each team's active doctrine over
 every game (kills minus losses plus half the cows, per minute) and breeds the next generation
 from the best ones, separately for the two teams and in parallel. The model explores tactics
 only inside a heuristic envelope, and the envelope is what evolves. It runs in Rust with no
 extra model calls, so it costs nothing; populations persist per team in
-`~/.local/state/reverie/doctrine-*.txt` and `reverie arena lessons` shows them.
+`~/.local/state/dogfight/doctrine-*.txt` and `dogfight arena lessons` shows them.
 
 ## Models
 
 The defaults are `Qwen/Qwen3-0.6B` for ZORB and `HuggingFaceTB/SmolLM2-1.7B-Instruct` for
-KRELL: two families, both ungated, 4.6 GB of GPU memory together. `reverie models` prints the
+KRELL: two families, both ungated, 4.6 GB of GPU memory together. `dogfight models` prints the
 catalogue with sizes and whether each entry fits 8 GB next to your other model. Every listed
 model is **ungated**: no licence click-through, no token.
 
@@ -118,8 +118,8 @@ model is **ungated**: no licence click-through, no token.
 | `qwen2.5-3b` | Qwen/Qwen2.5-3B-Instruct | 6.2 GB | `lm_quant = "8bit"` next to a partner |
 
 ```sh
-reverie --zorb lfm2-1.2b --krell gemma3-1b       # try a pair once
-reverie arena check --load                        # confirm both load and see the peak GPU memory
+dogfight --zorb lfm2-1.2b --krell gemma3-1b       # try a pair once
+dogfight arena check --load                        # confirm both load and see the peak GPU memory
 ```
 
 The sidecar caps itself at your card's memory minus 2 GB (`lm_vram_gb`), so a bigger card
@@ -127,9 +127,9 @@ simply allows bigger pairs; an out-of-memory error names the cap and the ways ar
 Pairs played through full battles on an RTX 4000 Ada (20 GB) while this was written:
 
 ```sh
-reverie --zorb qwen3-0.6b --krell smollm2-1.7b         # the defaults, 4.6 GB
-reverie --zorb qwen3-0.6b --krell gemma3-1b            # 3.6 GB
-reverie --zorb deepseek-r1-1.5b --krell qwen3-1.7b     # 7.9 GB: a card above 8 GB, or lm_quant = "8bit"
+dogfight --zorb qwen3-0.6b --krell smollm2-1.7b         # the defaults, 4.6 GB
+dogfight --zorb qwen3-0.6b --krell gemma3-1b            # 3.6 GB
+dogfight --zorb deepseek-r1-1.5b --krell qwen3-1.7b     # 7.9 GB: a card above 8 GB, or lm_quant = "8bit"
 ```
 
 An alias that is not in the catalogue is refused with a hint rather than started; a Hugging
@@ -151,9 +151,9 @@ last one, so the fight goes on either way). The 3B-class entries are listed on s
 ## Screensaver mode
 
 ```sh
-reverie install                  # bash, zsh or fish: play when the prompt has been idle
-reverie pause 60                 # quiet for an hour, e.g. during a screen share
-reverie uninstall                # remove the hook again
+dogfight install                  # bash, zsh or fish: play when the prompt has been idle
+dogfight pause 60                 # quiet for an hour, e.g. during a screen share
+dogfight uninstall                # remove the hook again
 ```
 
 `install` appends a marked block to your shell rc file (with a timestamped backup). A tiny
@@ -165,7 +165,7 @@ while you are away.
 
 ## Configuration
 
-`reverie config` prints the default file; copy it to `~/.config/reverie/config.toml` and edit.
+`dogfight config` prints the default file; copy it to `~/.config/dogfight/config.toml` and edit.
 
 | key | default | meaning |
 |---|---|---|
@@ -187,13 +187,13 @@ The frame loop costs about half a millisecond and 3 percent of a core at 60 fps 
 terminal; only changed cells are sent (25 to 35 KB per frame). Lag can therefore only come from
 a terminal that cannot drain bytes fast enough. A lag guard detects blocked writes, halves the
 frame rate for a few seconds and raises the colour tolerance so fewer cells change, then relaxes
-again; under a terminal throttled to 600 KB/s that keeps the battle at 25 fps. `reverie --perf
+again; under a terminal throttled to 600 KB/s that keeps the battle at 25 fps. `dogfight --perf
 FILE` writes one line per second with fps, per-stage timings, bytes per frame, the longest
 frame gap and CPU share. If your terminal struggles, set `fps = 30`.
 
 ## Security and quality
 
-reverie takes over your terminal, so it is built to be small, memory-safe and auditable:
+dogfight takes over your terminal, so it is built to be small, memory-safe and auditable:
 
 - one dependency (`libc`); `cargo audit`, `cargo clippy -D warnings`, `cargo fmt --check` and
   `--locked` builds are CI gates; every `unsafe` block carries a justification that clippy
@@ -204,8 +204,8 @@ reverie takes over your terminal, so it is built to be small, memory-safe and au
   `huggingface_hub` (safetensors, no remote code), pinnable to a commit; it passes `bandit`
   and `ruff`;
 - the terminal is restored on every exit path, including SIGTERM and panics;
-- `reverie remove` deletes exactly what reverie created: its config, state and data dirs, the
-  rc-file backups from `reverie install`, the models it downloaded (only those; other files in
+- `dogfight remove` deletes exactly what dogfight created: its config, state and data dirs, the
+  rc-file backups from `dogfight install`, the models it downloaded (only those; other files in
   the Hugging Face cache stay) and the binary. It lists everything and asks first;
   `--keep-models` keeps the weights, `--yes` skips the question.
 
@@ -216,8 +216,8 @@ Details and the threat model: [SECURITY.md](SECURITY.md). Run the whole gate loc
 
 ```sh
 scripts/qa.sh --full                                # fmt, clippy, audit, build, bench, tests, pty harness
-reverie bench --size 200x55 | python3 eval/check_bench.py /dev/stdin     # frame time and bytes vs eval/thresholds.toml
-reverie snapshot --scene ufo --out u.ansi && python3 eval/ansi2png.py u.ansi u.png   # deterministic frame to PNG
+dogfight bench --size 200x55 | python3 eval/check_bench.py /dev/stdin     # frame time and bytes vs eval/thresholds.toml
+dogfight snapshot --scene ufo --out u.ansi && python3 eval/ansi2png.py u.ansi u.png   # deterministic frame to PNG
 ```
 
 How it is put together, from the SIGALRM idle wake to the sidecar protocol and the genetic

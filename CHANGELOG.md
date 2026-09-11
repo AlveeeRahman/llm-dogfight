@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 — 2026-09-10
+
+- Renamed: the project is **LLM Dogfight**, the command is `dogfight`, the crate `llm-dogfight`.
+  Config, state and data now live under `dogfight` directories; the shell hook markers and the
+  environment variables (`DOGFIGHT_DISABLE`, `DOGFIGHT_PERF`) follow. Reinstall with
+  `cargo install --path .` and `dogfight install` if you used the screensaver mode.
+
 ## 0.3.7 — 2026-09-10
 
 - Downloads retry on Hugging Face rate limits (HTTP 429) and the HUD explains 429, gated and
@@ -31,20 +38,20 @@
 
 ## 0.3.2 — 2026-09-10
 
-- `reverie remove` now also deletes the rc-file backups and the models it downloaded (only
-  those reverie knows about; the rest of the Hugging Face cache is untouched). `--keep-models`
+- `dogfight remove` now also deletes the rc-file backups and the models it downloaded (only
+  those dogfight knows about; the rest of the Hugging Face cache is untouched). `--keep-models`
   opts out. Nothing is left behind.
 
 ## 0.3.1 — 2026-09-10
 
 - Model catalogue is now entirely ungated: the gated `meta-llama` and `google` entries were
   replaced by the ungated `unsloth` mirrors, and LFM2 (1.2B, 700M), OLMo 2 1B, Falcon3 1B,
-  h2o-danube3 500M and Qwen2.5 3B were added. `reverie models` says so.
+  h2o-danube3 500M and Qwen2.5 3B were added. `dogfight models` says so.
 - README rewritten for the public release.
 
 ## 0.3.0 — 2026-09-10
 
-The tool became the LLM dogfight itself: `reverie` starts a battle between two small local
+The tool became the LLM dogfight itself: `dogfight` starts a battle between two small local
 language models; the idle screensaver is an optional mode.
 
 - **Battle**: 4 saucers per team on screen, reinforcements 4 s after a loss out of a budget of
@@ -57,8 +64,8 @@ language models; the idle screensaver is an optional mode.
 - **Graphics**: dithered sky, aurora, moonlit clouds, dynamic lighting, farm with barn, fence,
   road and ten grazing cows, shaded saucers with trails and shield shimmer, title card and game
   banners, scoreboard.
-- **CLI**: `reverie [cuda|mlx|evolve|ufo]`, `--zorb`/`--krell` with a model catalogue
-  (`reverie models`), `reverie reset model|score|all`, `reverie remove` (clean uninstall),
+- **CLI**: `dogfight [cuda|mlx|evolve|ufo]`, `--zorb`/`--krell` with a model catalogue
+  (`dogfight models`), `dogfight reset model|score|all`, `dogfight remove` (clean uninstall),
   `--perf FILE` for live frame statistics.
 - **Robustness**: lag guard (frame-rate halving plus adaptive encoder tolerance on slow
   terminals), non-blocking sidecar writes, integer overflow checks in release (which caught a

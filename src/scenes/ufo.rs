@@ -678,7 +678,7 @@ impl Ufo {
         }
     }
 
-    /// One line per match event in ~/.local/state/reverie/match.log (lm mode only; a few
+    /// One line per match event in ~/.local/state/dogfight/match.log (lm mode only; a few
     /// lines a minute, so it costs nothing and shows exactly how a game went).
     fn mlog(&self, what: &str) {
         if self.lm.is_none() {
@@ -783,7 +783,7 @@ impl Ufo {
         let Some(p) = &self.game.score_path else { return };
         let g = &self.game;
         let s = format!(
-            "# reverie: {} vs {} — games won, lifetime kills and cows\nwins {} {}\nkills {} {}\ncows {} {}\ngames {} {}\n",
+            "# dogfight: {} vs {} — games won, lifetime kills and cows\nwins {} {}\nkills {} {}\ncows {} {}\ngames {} {}\n",
             TEAM_NAME[0],
             TEAM_NAME[1],
             g.wins[0],

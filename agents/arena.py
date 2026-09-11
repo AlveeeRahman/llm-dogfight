@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""reverie arena: two small language models command the two saucer teams.
+"""dogfight arena: two small language models command the two saucer teams.
 
-Spawned by `reverie` when `ufo_pilots = "lm"` (or `reverie arena`). Backends:
+Spawned by `dogfight` when `ufo_pilots = "lm"` (or `dogfight arena`). Backends:
   cuda  torch + transformers, weights in fp16/bf16 (or 8bit/4bit via bitsandbytes)
   mlx   mlx-lm on Apple silicon (unified memory; no VRAM cap needed)
   auto  mlx if importable on macOS/arm64, else cuda
 
 Line protocol on stdin/stdout (stdout is reserved for it; everything else goes to stderr,
-which reverie redirects to ~/.local/state/reverie/arena.log):
+which dogfight redirects to ~/.local/state/dogfight/arena.log):
 
-  reverie -> arena   {"t":"obs","team":0,"tick":7,...}   the situation for one team, one JSON line
+  dogfight -> arena   {"t":"obs","team":0,"tick":7,...}   the situation for one team, one JSON line
                      {"t":"loss","kind":"ship"|"round",...} a saucer (or the whole fleet) was lost: write a lesson
                      {"t":"quit"}
-  arena -> reverie   STATUS <text>                        progress (loading, ...)
+  arena -> dogfight   STATUS <text>                        progress (loading, ...)
                      READY <team> <label> <mem_gb>        that team's commander is online
                      ORDERS <team> <tick> S0:attack:3 S1:flee ... | <battle cry, only after a loss>
                      LESSON <team> <text>                 what the commander learned from a loss
@@ -24,8 +24,8 @@ so the commanders change their play while the match runs (and across matches).
 
   arena.py --model-a ID --model-b ID [--backend auto|cuda|mlx] [--vram-gb 6] [--quant none|8bit|4bit]
            [--evolve|--no-evolve] [--memory DIR]
-  arena.py ... --check [--load]     environment report (`reverie arena check`)
-  arena.py ... --pull               download both models (`reverie arena pull`)
+  arena.py ... --check [--load]     environment report (`dogfight arena check`)
+  arena.py ... --pull               download both models (`dogfight arena pull`)
 """
 import argparse
 import json
@@ -98,7 +98,7 @@ class TorchBackend:
         self.torch = torch
         if not torch.cuda.is_available():
             if sys.platform == "darwin":
-                raise RuntimeError("no CUDA on macOS: use `reverie run mlx ufo-battle` (pip install mlx-lm)")
+                raise RuntimeError("no CUDA on macOS: use `dogfight run mlx ufo-battle` (pip install mlx-lm)")
             raise RuntimeError("torch has no CUDA device (install a CUDA build of torch: https://pytorch.org/get-started/locally/)")
         self.dev = torch.device("cuda")
         total = torch.cuda.get_device_properties(0).total_memory
@@ -189,9 +189,9 @@ def oom_hint(e):
     if "429" in msg or "too many requests" in low or "rate limit" in low:
         return "Hugging Face is rate-limiting anonymous downloads (HTTP 429): wait a few minutes, or set HF_TOKEN (free account, read token) for a higher limit"
     if "401" in msg or "403" in msg or "gated" in low:
-        return "this model is gated or private on Hugging Face: accept its licence there and set HF_TOKEN, or pick an ungated one (reverie models)"
+        return "this model is gated or private on Hugging Face: accept its licence there and set HF_TOKEN, or pick an ungated one (dogfight models)"
     if "does not appear to have" in low or "not a valid model identifier" in low or "404" in msg:
-        return "no such model on Hugging Face: check the id (org/name) or pick one from `reverie models`"
+        return "no such model on Hugging Face: check the id (org/name) or pick one from `dogfight models`"
     return msg[:160]
 
 
@@ -224,7 +224,7 @@ def make_backend(name, vram_gb, quant):
         if name == "mlx":
             hint = "pip install mlx-lm"
         elif sys.platform == "darwin":
-            hint = "on a Mac use `reverie run mlx ufo-battle` after `pip install mlx-lm`"
+            hint = "on a Mac use `dogfight run mlx ufo-battle` after `pip install mlx-lm`"
         else:
             hint = "pip install torch transformers (a CUDA build of torch)"
         raise RuntimeError(f"{e}; {hint}") from e
@@ -427,7 +427,7 @@ def check(args):
     print(f"platform    {platform.system()} {platform.machine()}, python {platform.python_version()}")
     print(f"backend     {name} (requested {args.backend})")
     for mid in (args.model_a, args.model_b):
-        print(f"model       {mid}  cached={'yes' if is_cached(mid) else 'no (run: reverie arena pull)'}")
+        print(f"model       {mid}  cached={'yes' if is_cached(mid) else 'no (run: dogfight arena pull)'}")
     try:
         if name == "mlx":
             import mlx_lm
@@ -444,7 +444,7 @@ def check(args):
                       f"({'auto: card - 2 GB' if args.vram_gb <= 0 else 'lm_vram_gb'})")
     except ImportError as e:
         print(f"MISSING     {e}")
-        print("            cuda: pip install torch transformers      mac: pip install mlx-lm, then `reverie run mlx ufo-battle`")
+        print("            cuda: pip install torch transformers      mac: pip install mlx-lm, then `dogfight run mlx ufo-battle`")
         return 1
     if not args.load:
         print("(add --load to load both models and time one decision each)")

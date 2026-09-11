@@ -1,36 +1,69 @@
 name: ci
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
 jobs:
   test:
+    name: lint, build, bench, harness (Linux)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y zsh fish python3-pil python3-numpy
+      - run: rustup component add clippy rustfmt
       - run: cargo fmt --check                     # formatting is enforced
-      - run: cargo clippy --release -- -D warnings # every lint is an error
+      - run: cargo clippy --release -- -D warnings # every lint is an error (incl. undocumented unsafe)
       - run: cargo install cargo-audit --locked && cargo audit   # RustSec advisories (1 dependency: libc)
       - run: cargo build --release --locked
-      - run: sudo cp target/release/reverie /usr/local/bin/
-      - run: reverie bench --size 200x55 --frames 600 | tee bench.jsonl
+      - run: sudo cp target/release/dogfight /usr/local/bin/
+      - run: dogfight bench --size 200x55 --frames 600 | tee bench.jsonl
       - run: python3 eval/check_bench.py bench.jsonl
-      - run: python3 eval/test_terminal.py
-      - run: python3 eval/test_arena.py          # sidecar parsing/lessons, no GPU needed
+      - run: python3 eval/test_terminal.py          # 18 pty checks across bash, zsh and fish
+      - run: python3 eval/test_arena.py             # sidecar prompt/parse/lessons, no GPU needed
       - run: pip install --quiet bandit ruff && bandit -q -r agents/ && ruff check agents/ eval/test_arena.py
+
   macos:
-    runs-on: macos-latest                          # Apple silicon: builds + the GPU-free checks
+    name: build and GPU-free checks (Apple silicon)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo build --release
-      - run: ./target/release/reverie bench --size 200x55 --frames 300 | tee bench.jsonl
+      - run: cargo build --release --locked
+      - run: ./target/release/dogfight bench --size 200x55 --frames 300 | tee bench.jsonl
       - run: python3 eval/check_bench.py bench.jsonl
       - run: python3 eval/test_arena.py
+
   release:
+    name: release binaries
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-24.04
+    needs: [test, macos]
     strategy:
-      matrix: { target: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl] }
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - run: cargo install cross && cross build --release --target ${{ matrix.target }}
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: package
+        run: |
+          set -e
+          v="${GITHUB_REF_NAME#v}"
+          dir="dogfight-${v}-${{ matrix.target }}"
+          mkdir -p "$dir"
+          cp "target/${{ matrix.target }}/release/dogfight" README.md LICENSE SECURITY.md "$dir/"
+          tar czf "$dir.tar.gz" "$dir"
+          shasum -a 256 "$dir.tar.gz" > "$dir.tar.gz.sha256"
       - uses: softprops/action-gh-release@v2
-        with: { files: "target/${{ matrix.target }}/release/reverie" }
+        with:
+          files: |
+            dogfight-*.tar.gz
+            dogfight-*.tar.gz.sha256
+          generate_release_notes: true

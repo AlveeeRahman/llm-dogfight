@@ -1,49 +1,49 @@
 //! Shell integration. Human-controlled surface: rc files are only modified by the
-//! explicit `reverie install` command, with a timestamped backup and a marked block
-//! that `reverie uninstall` removes cleanly.
+//! explicit `dogfight install` command, with a timestamped backup and a marked block
+//! that `dogfight uninstall` removes cleanly.
 use std::fs;
 use std::path::PathBuf;
 
-const BEGIN: &str = "# >>> reverie >>>";
-const END: &str = "# <<< reverie <<<";
+const BEGIN: &str = "# >>> dogfight >>>";
+const END: &str = "# <<< dogfight <<<";
 
 pub fn snippet(shell: &str) -> Option<&'static str> {
     Some(match shell {
         "bash" => {
-            r#"# reverie: terminal screensaver when the prompt sits idle
-if [[ $- == *i* ]] && [ -t 0 ] && [ -z "${REVERIE_DISABLE-}" ] && command -v reverie >/dev/null 2>&1; then
+            r#"# dogfight: terminal screensaver when the prompt sits idle
+if [[ $- == *i* ]] && [ -t 0 ] && [ -z "${DOGFIGHT_DISABLE-}" ] && command -v dogfight >/dev/null 2>&1; then
   # SIGWINCH afterwards makes readline repaint the half-typed line (verified in a pty)
-  __reverie_alrm() { command reverie run --idle-trigger "$$"; kill -WINCH $$ 2>/dev/null; }
-  trap '__reverie_alrm' ALRM
-  command reverie watch --pid "$$" --tty "$(tty 2>/dev/null)" --daemon
+  __dogfight_alrm() { command dogfight run --idle-trigger "$$"; kill -WINCH $$ 2>/dev/null; }
+  trap '__dogfight_alrm' ALRM
+  command dogfight watch --pid "$$" --tty "$(tty 2>/dev/null)" --daemon
 fi
 "#
         }
         "zsh" => {
-            r#"# reverie: terminal screensaver when the prompt sits idle
-if [[ -o interactive ]] && [[ -t 0 ]] && [[ -z ${REVERIE_DISABLE-} ]] && (( $+commands[reverie] )); then
-  (( $+functions[TRAPALRM] )) && functions[__reverie_prev_alrm]=$functions[TRAPALRM]
+            r#"# dogfight: terminal screensaver when the prompt sits idle
+if [[ -o interactive ]] && [[ -t 0 ]] && [[ -z ${DOGFIGHT_DISABLE-} ]] && (( $+commands[dogfight] )); then
+  (( $+functions[TRAPALRM] )) && functions[__dogfight_prev_alrm]=$functions[TRAPALRM]
   TRAPALRM() {
-    if [[ -e ${XDG_RUNTIME_DIR:-/tmp}/reverie-$UID/fire-$$ ]]; then
-      command reverie run --idle-trigger $$
+    if [[ -e ${XDG_RUNTIME_DIR:-/tmp}/dogfight-$UID/fire-$$ ]]; then
+      command dogfight run --idle-trigger $$
       zle && zle reset-prompt
-    elif (( $+functions[__reverie_prev_alrm] )); then
-      __reverie_prev_alrm
+    elif (( $+functions[__dogfight_prev_alrm] )); then
+      __dogfight_prev_alrm
     fi
     return 0
   }
-  command reverie watch --pid $$ --tty "$(tty 2>/dev/null)" --daemon
+  command dogfight watch --pid $$ --tty "$(tty 2>/dev/null)" --daemon
 fi
 "#
         }
         "fish" => {
-            r#"# reverie: terminal screensaver when the prompt sits idle
-if status is-interactive; and isatty stdin; and not set -q REVERIE_DISABLE; and command -q reverie
-    function __reverie_alrm --on-signal SIGALRM
-        command reverie run --idle-trigger $fish_pid
+            r#"# dogfight: terminal screensaver when the prompt sits idle
+if status is-interactive; and isatty stdin; and not set -q DOGFIGHT_DISABLE; and command -q dogfight
+    function __dogfight_alrm --on-signal SIGALRM
+        command dogfight run --idle-trigger $fish_pid
         commandline -f repaint
     end
-    command reverie watch --pid $fish_pid --tty (tty 2>/dev/null) --daemon
+    command dogfight watch --pid $fish_pid --tty (tty 2>/dev/null) --daemon
 end
 "#
         }
@@ -63,15 +63,15 @@ pub fn rc_path(shell: &str) -> Option<PathBuf> {
     Some(match shell {
         "bash" => home().join(".bashrc"),
         "zsh" => std::env::var_os("ZDOTDIR").map(PathBuf::from).unwrap_or_else(home).join(".zshrc"),
-        "fish" => std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".config")).join("fish/conf.d/reverie.fish"),
+        "fish" => std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".config")).join("fish/conf.d/dogfight.fish"),
         _ => return None,
     })
 }
 
 fn line_for(shell: &str) -> String {
     match shell {
-        "fish" => "reverie init fish | source".to_string(),
-        s => format!("eval \"$(reverie init {s})\""),
+        "fish" => "dogfight init fish | source".to_string(),
+        s => format!("eval \"$(dogfight init {s})\""),
     }
 }
 
@@ -87,7 +87,7 @@ pub fn install(shell: &str) -> Result<String, String> {
     let mut msg = String::new();
     if !existing.is_empty() {
         let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let bak = rc.with_file_name(format!("{}.reverie-backup-{ts}", rc.file_name().unwrap().to_string_lossy()));
+        let bak = rc.with_file_name(format!("{}.dogfight-backup-{ts}", rc.file_name().unwrap().to_string_lossy()));
         fs::copy(&rc, &bak).map_err(|e| format!("backup failed: {e}"))?;
         msg += &format!("backup: {}\n", bak.display());
     }
@@ -95,7 +95,7 @@ pub fn install(shell: &str) -> Result<String, String> {
     let mut new = existing;
     new.push_str(&block);
     fs::write(&rc, new).map_err(|e| e.to_string())?;
-    msg += &format!("added reverie to {}\nopen a new terminal (or run: {}) to activate", rc.display(), line_for(shell));
+    msg += &format!("added dogfight to {}\nopen a new terminal (or run: {}) to activate", rc.display(), line_for(shell));
     Ok(msg)
 }
 

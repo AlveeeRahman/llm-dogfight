@@ -9,7 +9,7 @@
 //! window (a game, or `SEGMENT` seconds of one) by kills − losses + ½ cows (+ a win bonus),
 //! per minute. When every candidate of the population has a score, the top half survives,
 //! the rest is replaced by uniform crossover of two survivors plus Gaussian mutation, clamped
-//! to the bounds. Populations persist in `~/.local/state/reverie/doctrine-<TEAM>.txt`.
+//! to the bounds. Populations persist in `~/.local/state/dogfight/doctrine-<TEAM>.txt`.
 use crate::config::state_dir;
 use crate::rng::Rng;
 use std::path::PathBuf;
@@ -205,7 +205,7 @@ impl Population {
 
     pub fn save(&self) {
         let _ = std::fs::create_dir_all(state_dir());
-        let mut s = format!("# reverie doctrine population, team {}\ngen {}\nactive {}\n", self.team, self.gen, self.active);
+        let mut s = format!("# dogfight doctrine population, team {}\ngen {}\nactive {}\n", self.team, self.gen, self.active);
         for c in &self.cands {
             s.push_str(&c.d.line(c.fit, c.evals));
             s.push('\n');

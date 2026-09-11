@@ -3,7 +3,7 @@
 # this file but must never edit it to make a failing candidate pass. Changing a
 # threshold is a human decision, recorded in CHANGELOG.md with a reason.
 
-[perf]                      # measured by `reverie bench` (headless, same seed)
+[perf]                      # measured by `dogfight bench` (headless, same seed)
 ref_cols = 200              # a maximised GNOME Terminal on a 1080p screen
 ref_rows = 55
 frame_mean_ms = 4.0         # update + render + encode, mean over 600 frames

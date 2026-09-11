@@ -1,14 +1,14 @@
 # Security
 
-reverie runs inside your terminal session and, in `ufo-battle` mode, runs two language models on
+LLM Dogfight runs inside your terminal session and, in `ufo-battle` mode, runs two language models on
 your machine. This page says what it does, what it does not do, and how it is checked.
 
 ## What the binary does and does not do
 
 - **Touches:** your terminal (raw mode, alternate screen; restored on every exit path including
-  SIGTERM/SIGHUP and panics), `~/.config/reverie`, `~/.local/state/reverie`,
-  `~/.local/share/reverie`, `${XDG_RUNTIME_DIR:-/tmp}/reverie-$UID` (mode 0700), and your shell
-  rc file only through `reverie install` (marked block, timestamped backup) / `reverie uninstall`.
+  SIGTERM/SIGHUP and panics), `~/.config/dogfight`, `~/.local/state/dogfight`,
+  `~/.local/share/dogfight`, `${XDG_RUNTIME_DIR:-/tmp}/dogfight-$UID` (mode 0700), and your shell
+  rc file only through `dogfight install` (marked block, timestamped backup) / `dogfight uninstall`.
 - **Never:** opens a network connection, reads files outside those paths, escalates privileges,
   or runs anything but the sidecar it wrote itself (`arena.py`, rewritten from the embedded copy
   on every start, so a modified copy is overwritten).
@@ -19,7 +19,7 @@ your machine. This page says what it does, what it does not do, and how it is ch
   (Hugging Face models through `huggingface_hub`). Pin a model to a revision with
   `--zorb Qwen/Qwen3-0.6B@<commit>` or `lm_model_a = "…@<commit>"` if you need reproducible weights.
   It runs at lower CPU priority and is killed when the battle ends.
-- **`reverie remove`** deletes exactly the paths above, the rc-file backups it made, the model
+- **`dogfight remove`** deletes exactly the paths above, the rc-file backups it made, the model
   directories it downloaded (catalogue models and the configured pair only) and the binary;
   nothing else. `--keep-models` keeps the weights.
 
@@ -44,7 +44,7 @@ Run all of it locally with `scripts/qa.sh`.
   guardrails and the fact that the model never gets a tool, a file or a shell.
 - A malicious model repository: the sidecar loads weights with `transformers` / `mlx-lm`, which
   use safetensors (no pickle execution) for the catalogued models; pin revisions for stronger
-  guarantees. reverie never sets `trust_remote_code`.
+  guarantees. dogfight never sets `trust_remote_code`.
 - Another local user: state and runtime dirs are per user; the runtime dir is 0700; signals are
   only sent to processes verified to be our own watcher or the shell that started it.
 - A crashed or wedged terminal: the watcher only fires when the shell is at its prompt; the saver
@@ -53,5 +53,5 @@ Run all of it locally with `scripts/qa.sh`.
 ## Reporting
 
 Open a GitHub issue with the label `security`, or contact the maintainer privately if the issue
-could expose users. Please include `reverie --version`, your terminal and OS, and the relevant
-lines of `~/.local/state/reverie/arena.log` or `match.log`.
+could expose users. Please include `dogfight --version`, your terminal and OS, and the relevant
+lines of `~/.local/state/dogfight/arena.log` or `match.log`.

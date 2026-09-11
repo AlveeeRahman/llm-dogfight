@@ -2,7 +2,7 @@
 //! while idle in readline, but services SIGALRM immediately (bash 5.2, zsh 5.9 and
 //! fish 3.7 all verified). So:
 //!
-//!   watcher (1 tiny process per shell) --SIGALRM--> shell --runs--> `reverie run --idle-trigger`
+//!   watcher (1 tiny process per shell) --SIGALRM--> shell --runs--> `dogfight run --idle-trigger`
 //!
 //! The watcher fires only when (a) the shell itself owns the terminal foreground
 //! (tpgid == shell pgrp, i.e. no command running) and is sleeping in read, and
@@ -116,11 +116,11 @@ fn alive(pid: i32) -> bool {
     ok || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-/// Is `pid` one of our `reverie watch` processes? (before replacing it)
+/// Is `pid` one of our `dogfight watch` processes? (before replacing it)
 fn is_watcher(pid: i32) -> bool {
     #[cfg(target_os = "linux")]
     {
-        fs::read_to_string(format!("/proc/{pid}/cmdline")).map(|c| c.contains("reverie") && c.contains("watch")).unwrap_or(false)
+        fs::read_to_string(format!("/proc/{pid}/cmdline")).map(|c| c.contains("dogfight") && c.contains("watch")).unwrap_or(false)
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -129,7 +129,7 @@ fn is_watcher(pid: i32) -> bool {
             .output()
             .map(|o| {
                 let c = String::from_utf8_lossy(&o.stdout);
-                c.contains("reverie") && c.contains("watch")
+                c.contains("dogfight") && c.contains("watch")
             })
             .unwrap_or(false)
     }
@@ -162,7 +162,7 @@ fn daemonize() -> bool {
 
 pub fn watch(pid: i32, tty_hint: Option<&str>, idle_override: Option<u64>, daemon: bool) -> i32 {
     let Some(tty) = tty_of(pid, tty_hint) else {
-        eprintln!("reverie watch: pid {pid} has no terminal (pass --tty \"$(tty)\")");
+        eprintln!("dogfight watch: pid {pid} has no terminal (pass --tty \"$(tty)\")");
         return 1;
     };
     if daemon && !daemonize() {
@@ -252,9 +252,9 @@ pub fn stop_watchers() -> usize {
                 }
                 let cmd = fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
                 let parts: Vec<&[u8]> = cmd.split(|&b| b == 0).collect();
-                let is_rev = parts.first().map(|p| p.ends_with(b"reverie")).unwrap_or(false);
+                let is_rev = parts.first().map(|p| p.ends_with(b"dogfight")).unwrap_or(false);
                 if is_rev && parts.get(1) == Some(&&b"watch"[..]) {
-                    // SAFETY: sending a signal has no memory preconditions; the cmdline was checked to be `reverie watch`.
+                    // SAFETY: sending a signal has no memory preconditions; the cmdline was checked to be `dogfight watch`.
                     unsafe { libc::kill(pid, libc::SIGTERM) };
                     n += 1;
                 }

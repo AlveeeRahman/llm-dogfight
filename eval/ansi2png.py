@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render reverie's ANSI output to images, the way a truecolor terminal would.
+"""Render dogfight's ANSI output to images, the way a truecolor terminal would.
 
 Terminal cells are drawn 8x16 px: '▀' = top half fg / bottom half bg (so every
 half-block pixel is an 8x8 square), braille = 2x4 dots, other glyphs via DejaVu Sans Mono.

@@ -1,8 +1,8 @@
-# reverie — architecture
+# LLM Dogfight — architecture
 
 How the tool is built and why, for contributors. State: **v0.3.0** — a terminal UFO dogfight flown
-by two small local language models (`reverie`), with the built-in pilots as the no-GPU baseline
-(`reverie ufo`) and an optional idle-screensaver mode (`reverie install`). One scene, two kinds of
+by two small local language models (`dogfight`), with the built-in pilots as the no-GPU baseline
+(`dogfight ufo`) and an optional idle-screensaver mode (`dogfight install`). One scene, two kinds of
 pilots. Working rules: `scripts/qa.sh --full` must be green before a change is done; the files
 under `eval/` are the measuring instruments and are not edited to make something pass.
 
@@ -32,16 +32,16 @@ importer. The user asked to keep only `ufo` and make it LM-controlled; the other
 ## 2. Runtime architecture
 
 ```
- ~/.bashrc  ──eval "$(reverie init bash)"──►  trap __reverie_alrm ALRM
-                                              reverie watch --pid $$ --tty "$(tty)" --daemon
+ ~/.bashrc  ──eval "$(dogfight init bash)"──►  trap __dogfight_alrm ALRM
+                                              dogfight watch --pid $$ --tty "$(tty)" --daemon
                                                     │
      every ≤10 s: at prompt?  Linux: /proc/<shell>/stat (tpgid == pgrp && state 'S')
                               macOS: ps -o pgid,tpgid,stat -p <shell>
                   stat(tty).atime → idle ≥ idle_seconds?
                                                     │ yes
-     write $XDG_RUNTIME_DIR/reverie-$UID/fire-<pid>  then kill(shell, SIGALRM)
+     write $XDG_RUNTIME_DIR/dogfight-$UID/fire-<pid>  then kill(shell, SIGALRM)
                                                     ▼
- shell runs trap → reverie run --idle-trigger <pid>
+ shell runs trap → dogfight run --idle-trigger <pid>
      claim_trigger(): marker must exist and be ≤ 5 s old (else exit 0 silently)
      acquire_slot(): flock on slot-0..N (max_instances) (else exit 0)
      Term::enter(): raw mode, alt screen, hide cursor, no autowrap, focus reports
@@ -88,7 +88,7 @@ config lists both `ufo` and `ufo-battle`).
 
 | file | role |
 |---|---|
-| `src/main.rs` | CLI (hand-rolled parser): `reverie [cuda|mlx|evolve|ufo]`, `run ...` long form, `arena check|pull|lessons`, `reset`, `remove`, `bench`, `snapshot`, install/uninstall/pause/status |
+| `src/main.rs` | CLI (hand-rolled parser): `dogfight [cuda|mlx|evolve|ufo]`, `run ...` long form, `arena check|pull|lessons`, `reset`, `remove`, `bench`, `snapshot`, install/uninstall/pause/status |
 | `src/app.rs` | the screensaver loop |
 | `src/term.rs` | raw mode, signals, restore guarantees, input |
 | `src/canvas.rs`, `src/encode.rs` | framebuffer + AA primitives; diff encoder |
@@ -98,7 +98,7 @@ config lists both `ufo` and `ufo-battle`).
 | `src/arena.rs` | sidecar link: spawn, reader thread, line protocol parser, `Order` enum, lessons dir |
 | `src/scenes/mod.rs` | **locked** `Scene` trait, `make()`, `NAMES`, shared `Starfield` |
 | `src/scenes/ufo.rs` | the scene: orders → steering, built-in commander, LM plumbing, HUD |
-| `agents/arena.py` | the sidecar (embedded via `include_str!`, written to `~/.local/share/reverie/arena.py`) |
+| `agents/arena.py` | the sidecar (embedded via `include_str!`, written to `~/.local/share/dogfight/arena.py`) |
 | `src/math.rs`, `src/rng.rs` | `Rgb`, value noise, gradients; splitmix64 RNG |
 
 ## 5. The ufo scene
@@ -158,11 +158,11 @@ Key numbers: ship size `s = w/26` clamped 3.2..8 px; weapon range `16 s`; built-
 
 ## 6. The sidecar (agents/arena.py)
 
-Line protocol (stdout is reserved for it; stderr → `~/.local/state/reverie/arena.log`):
+Line protocol (stdout is reserved for it; stderr → `~/.local/state/dogfight/arena.log`):
 
 ```
-reverie → arena   {"t":"obs",...}  {"t":"loss",...}  {"t":"quit"}
-arena → reverie   STATUS <text>
+dogfight → arena   {"t":"obs",...}  {"t":"loss",...}  {"t":"quit"}
+arena → dogfight   STATUS <text>
                   READY <team> <label> <mem_gb>
                   ORDERS <team> <tick> S0:attack:3 S1:flee ... D:<n> | <cry>
                   LESSON <team> <text>
@@ -182,8 +182,8 @@ free, `SAY:` only when `cry` is set). `parse_reply` is regex-based and forgiving
 optional argument cannot cross a newline (a bug found by `eval/test_arena.py`). Sampling:
 temperature 0.7, top-p 0.9, top-k 40, `max_new_tokens = 30 + 14·ships` (≤ 110); reflections 60.
 
-Lessons: `Lessons` keeps ≤ 8 per (team, model) in `~/.local/state/reverie/lessons/<TEAM>-<label>.txt`
-(dedup, oldest dropped), injected into the system prompt. `reverie arena lessons|forget`.
+Lessons: `Lessons` keeps ≤ 8 per (team, model) in `~/.local/state/dogfight/lessons/<TEAM>-<label>.txt`
+(dedup, oldest dropped), injected into the system prompt. `dogfight arena lessons|forget`.
 
 Measured here (RTX 4000 Ada, torch 2.6 cu124, transformers 5.7): load 2 s + 1 s; torch peak
 4.6 GB for both models, 4.9 GB by nvidia-smi (includes the CUDA context); decisions 0.2–0.8 s
@@ -199,37 +199,37 @@ keys at `mlx-community/*-4bit` repos.
 
 ## 7. File formats (on users' disks — stay backward compatible)
 
-**Config** `~/.config/reverie/config.toml`: `key = value` lines; unknown keys ignored (v0.1's
+**Config** `~/.config/dogfight/config.toml`: `key = value` lines; unknown keys ignored (v0.1's
 `garden_speed`, `day_cycle_seconds`, `character` are silently accepted). Keys: `idle_seconds`,
 `fps`, `unfocused_fps`, `scenes`, `rotate_minutes`, `max_instances`, `color`, `tolerance`,
 `ufo_pilots`, `lm_backend`, `lm_model_a`, `lm_model_b`, `lm_vram_gb`, `lm_quant`, `lm_python`,
 `lm_think_seconds`, `lm_evolve`.
 
-**Lessons** `~/.local/state/reverie/lessons/<TEAM>-<model label>.txt`: one lesson per line.
-**Doctrines** `~/.local/state/reverie/doctrine-<TEAM>.txt`: `gen n`, `active k`, then six lines
+**Lessons** `~/.local/state/dogfight/lessons/<TEAM>-<model label>.txt`: one lesson per line.
+**Doctrines** `~/.local/state/dogfight/doctrine-<TEAM>.txt`: `gen n`, `active k`, then six lines
 `flee_hp brave_hp abduct_dist abduct_clear focus courage fitness evals`.
-**Scoreboard** `~/.local/state/reverie/score-<A>-vs-<B>.txt`: `wins a b`, `kills a b`, `cows a b`, `games n n`.
-**Match log** `~/.local/state/reverie/match.log`: `<t>s game <n> | start|kill|reinforcement|cow|over: ...`.
+**Scoreboard** `~/.local/state/dogfight/score-<A>-vs-<B>.txt`: `wins a b`, `kills a b`, `cows a b`, `games n n`.
+**Match log** `~/.local/state/dogfight/match.log`: `<t>s game <n> | start|kill|reinforcement|cow|over: ...`.
 
-**Runtime** `${XDG_RUNTIME_DIR:-/tmp}/reverie-$UID/` (mode 0700): `fire-<pid>`, `watch-<pid>`,
-`slot-<n>`. **Pause**: `~/.local/state/reverie/paused-until` (unix secs).
-**Sidecar copy** `~/.local/share/reverie/arena.py` (rewritten whenever the embedded one differs).
+**Runtime** `${XDG_RUNTIME_DIR:-/tmp}/dogfight-$UID/` (mode 0700): `fire-<pid>`, `watch-<pid>`,
+`slot-<n>`. **Pause**: `~/.local/state/dogfight/paused-until` (unix secs).
+**Sidecar copy** `~/.local/share/dogfight/arena.py` (rewritten whenever the embedded one differs).
 
 ## 8. Evaluation harness
 
 | tool | checks |
 |---|---|
-| `reverie bench [--scene ufo] [--size 200x55] [--frames 600] [--seed 42]` | JSON: frame mean/p95/max ms, bytes mean/p95 KB, first-frame KB, peak RSS |
+| `dogfight bench [--scene ufo] [--size 200x55] [--frames 600] [--seed 42]` | JSON: frame mean/p95/max ms, bytes mean/p95 KB, first-frame KB, peak RSS |
 | `eval/check_bench.py` | compares bench JSON to `eval/thresholds.toml` |
 | `eval/test_terminal.py` | 18 pty checks (bash/zsh/fish): saver starts; exit ≤ 300 ms; restore screen/termios; restore after SIGTERM; silent during a command; fires at prompt; partial line survives; wake key not leaked; watcher RSS ≤ 4 MB |
 | `eval/test_arena.py` | sidecar prompt/parse/lessons/backend selection, no GPU |
-| `reverie arena check --load` | the GPU side: loads both models, times a decision and a reflection, prints peak memory |
-| `reverie snapshot` + `eval/ansi2png.py` | deterministic frame → PNG for visual review |
+| `dogfight arena check --load` | the GPU side: loads both models, times a decision and a reflection, prints peak memory |
+| `dogfight snapshot` + `eval/ansi2png.py` | deterministic frame → PNG for visual review |
 
 Results (200×55, seed 42): ufo mean 0.34 ms, p95 0.36 ms, 30.2 KB/frame mean,
 42.8 KB p95 (limits 4 ms / 8 ms / 45 KB / 110 KB). Binary 0.69 MB (≤ 4), watcher 1.05 MB RSS
 (≤ 4). pty harness: 14/14 bash checks pass here; zsh and fish are not installed on this machine
-(the 4 shell-specific checks could not run — not a reverie failure). CI runs all three shells.
+(the 4 shell-specific checks could not run — not a dogfight failure). CI runs all three shells.
 
 ## 8b. Performance model and the lag guard
 
@@ -240,7 +240,7 @@ therefore has a lag guard: four writes over half a frame period → fps halved f
 encoder tolerance raised by 4 (cap 24); after 8 s of fast writes the tolerance steps back down
 toward the config value. `Arena::send` goes through a writer thread with a 64-line bounded
 queue (`try_send`), so a busy sidecar cannot block the loop; the sidecar itself runs `nice 5`.
-`--perf FILE` / `REVERIE_PERF` writes one line per second (fps, per-stage mean/max ms, KB/frame,
+`--perf FILE` / `DOGFIGHT_PERF` writes one line per second (fps, per-stage mean/max ms, KB/frame,
 gap_max, CPU share, guard events) and is the first thing to look at for any lag report.
 
 ## 9. Security and code-quality posture
@@ -258,7 +258,7 @@ crash, leak or escape-sequence bug would be felt immediately. What is enforced:
 | files | XDG paths only; runtime dir `0700`; doctrine/score files parse numerically; the sidecar copy is rewritten from the embedded source on every start (a tampered copy is overwritten) |
 | network | none in the binary; the Python side downloads models through `huggingface_hub` |
 | terminal | restore on `leave()`, `Drop`, panic hook, SIGTERM/INT/HUP/QUIT; `panic = "abort"` after the hook; SIGPIPE default so a closed pipe cannot wedge output |
-| removal | `reverie remove` deletes exactly the hook, watchers, config/state/data/runtime dirs and the binary (`--models` for the HF cache); verified in a fake HOME |
+| removal | `dogfight remove` deletes exactly the hook, watchers, config/state/data/runtime dirs and the binary (`--models` for the HF cache); verified in a fake HOME |
 
 ## 10. Known issues and backlog
 
@@ -271,7 +271,7 @@ Known, accepted:
 - macOS watcher + MLX backend: cross-compiled (`cargo check --target aarch64-apple-darwin`) and
   unit-tested, never run on a Mac. First things to verify there: `ps -o pgid,tpgid,stat` output
   parsing, tty atime updating on input, `mlx_lm` chat-template kwargs.
-- `.github/workflows/ci.yml` has not run yet (macos job added, untested).
+- `.github/workflows/ci.yml`: lint/build/bench/harness on Linux, build + checks on macOS, release binaries on `v*` tags; `models.yml` checks the catalogue weekly.
 
 Backlog, roughly by value:
 1. A real GNOME Terminal pass (colours, braille widths, CPU of `gnome-terminal-server`).

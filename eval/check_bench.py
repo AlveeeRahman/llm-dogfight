@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare `reverie bench` JSON lines against the LOCKED eval/thresholds.toml."""
+"""Compare `dogfight bench` JSON lines against the LOCKED eval/thresholds.toml."""
 import sys, json, os, tomllib
 T = tomllib.load(open(os.path.join(os.path.dirname(__file__), "thresholds.toml"), "rb"))["perf"]
 keys = ["frame_mean_ms", "frame_p95_ms", "bytes_mean_kb", "bytes_p95_kb"]

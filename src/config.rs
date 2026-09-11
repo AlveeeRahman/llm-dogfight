@@ -1,4 +1,4 @@
-//! Config lives in ~/.config/reverie/config.toml. We parse a small TOML subset
+//! Config lives in ~/.config/dogfight/config.toml. We parse a small TOML subset
 //! (key = value, strings, numbers, bools, string arrays, comments) with no deps.
 use std::path::PathBuf;
 
@@ -24,7 +24,7 @@ pub struct Config {
     pub lm_think_seconds: f32,
     /// commanders write a lesson after each loss and keep it in their prompts (and on disk)
     pub lm_evolve: bool,
-    /// genetic doctrine evolution (`reverie run ufo-battle evolve`)
+    /// genetic doctrine evolution (`dogfight run ufo-battle evolve`)
     pub lm_genetic: bool,
     /// reinforcements per team per game; a team that cannot field a saucer loses the game
     pub lm_regens: u32,
@@ -32,7 +32,7 @@ pub struct Config {
     pub lm_max_alive: u32,
 }
 
-pub const DEFAULT_TOML: &str = r#"# reverie — ~/.config/reverie/config.toml
+pub const DEFAULT_TOML: &str = r#"# dogfight — ~/.config/dogfight/config.toml
 
 # Seconds your shell must sit idle at the prompt before the screensaver starts.
 idle_seconds = 300
@@ -41,7 +41,7 @@ idle_seconds = 300
 fps = 30
 unfocused_fps = 12
 
-# Idle-screensaver mode only (`reverie install`): "ufo" (built-in pilots, no GPU) and/or "ufo-battle".
+# Idle-screensaver mode only (`dogfight install`): "ufo" (built-in pilots, no GPU) and/or "ufo-battle".
 scenes = ["ufo"]
 rotate_minutes = 4
 
@@ -57,12 +57,12 @@ tolerance = 5
 
 # Who flies the "ufo" scene: "builtin" (heuristic pilots, no GPU) or "lm" (same as the
 # "ufo-battle" scene: two small language models command the two teams; needs python3 with
-# torch+transformers on a CUDA GPU, or mlx-lm on Apple silicon). Try `reverie run cuda ufo-battle`;
-# check the setup with `reverie arena check --load`.
+# torch+transformers on a CUDA GPU, or mlx-lm on Apple silicon). Try `dogfight run cuda ufo-battle`;
+# check the setup with `dogfight arena check --load`.
 ufo_pilots = "builtin"
 
 # Language-model commanders. Defaults fit an 8 GB CUDA card (about 5 GB together).
-lm_backend = "auto"                                 # auto = cuda, or mlx on Apple silicon; or `reverie mlx` / `reverie cuda`
+lm_backend = "auto"                                 # auto = cuda, or mlx on Apple silicon; or `dogfight mlx` / `dogfight cuda`
 lm_model_a = "Qwen/Qwen3-0.6B"                      # team ZORB
 lm_model_b = "HuggingFaceTB/SmolLM2-1.7B-Instruct"  # team KRELL
 lm_vram_gb = "auto"                                 # CUDA memory cap for the sidecar: auto = your card's memory
@@ -71,9 +71,9 @@ lm_quant = "none"                                   # cuda: none | 8bit | 4bit (
 lm_python = "python3"                               # interpreter that has the ML packages
 lm_think_seconds = 1.0                              # minimum pause between a team's orders
 lm_evolve = true                                    # learn from every destroyed saucer (lessons persist in
-                                                    # ~/.local/state/reverie/lessons; `reverie reset model` clears)
+                                                    # ~/.local/state/dogfight/lessons; `dogfight reset model` clears)
 lm_genetic = false                                  # evolve each team's bounded doctrine with a genetic algorithm
-                                                    # (same as the `evolve` word: `reverie run ufo-battle evolve`)
+                                                    # (same as the `evolve` word: `dogfight run ufo-battle evolve`)
 lm_max_alive = 4                                    # saucers per team on screen (a game's loser restarts with +1)
 lm_regens = 20                                      # reinforcements per team per game; then it is a fight to the death
 "#;
@@ -218,16 +218,16 @@ fn xdg(var: &str, fallback: &str) -> PathBuf {
     }
 }
 pub fn config_path() -> PathBuf {
-    xdg("XDG_CONFIG_HOME", ".config").join("reverie").join("config.toml")
+    xdg("XDG_CONFIG_HOME", ".config").join("dogfight").join("config.toml")
 }
 pub fn state_dir() -> PathBuf {
-    xdg("XDG_STATE_HOME", ".local/state").join("reverie")
+    xdg("XDG_STATE_HOME", ".local/state").join("dogfight")
 }
 pub fn data_dir() -> PathBuf {
-    xdg("XDG_DATA_HOME", ".local/share").join("reverie")
+    xdg("XDG_DATA_HOME", ".local/share").join("dogfight")
 }
 /// Per-user runtime dir shared with the shell snippets:
-/// `${XDG_RUNTIME_DIR:-/tmp}/reverie-$UID`
+/// `${XDG_RUNTIME_DIR:-/tmp}/dogfight-$UID`
 pub fn runtime_dir() -> PathBuf {
     let base = match std::env::var_os("XDG_RUNTIME_DIR") {
         Some(p) if !p.is_empty() => PathBuf::from(p),
@@ -235,7 +235,7 @@ pub fn runtime_dir() -> PathBuf {
     };
     // SAFETY: getuid never fails and has no preconditions.
     let uid = unsafe { libc::getuid() };
-    let d = base.join(format!("reverie-{uid}"));
+    let d = base.join(format!("dogfight-{uid}"));
     let _ = std::fs::create_dir_all(&d);
     if let Ok(c) = std::ffi::CString::new(d.to_string_lossy().as_bytes()) {
         // SAFETY: `c` is a valid NUL-terminated path that outlives the call.

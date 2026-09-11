@@ -15,35 +15,35 @@ mod term;
 use config::Config;
 use std::time::Instant;
 
-const HELP: &str = "reverie — a UFO dogfight in your terminal, flown by two local language models
+const HELP: &str = "LLM Dogfight — a UFO dogfight in your terminal, flown by two local language models
 
 USAGE
-  reverie                         start the battle (auto-detects CUDA, or MLX on Apple silicon); any key exits
-  reverie cuda | reverie mlx      same, with the backend chosen by hand
-  reverie evolve                  ... and evolve each team's bounded doctrine with a genetic algorithm
-  reverie ufo                     the built-in pilots, no models, no GPU
+  dogfight                         start the battle (auto-detects CUDA, or MLX on Apple silicon); any key exits
+  dogfight cuda | dogfight mlx      same, with the backend chosen by hand
+  dogfight evolve                  ... and evolve each team's bounded doctrine with a genetic algorithm
+  dogfight ufo                     the built-in pilots, no models, no GPU
       options: [--zorb MODEL] [--krell MODEL] [--lessons on|off] [--fps N] [--seed N] [--duration SECS] [--perf FILE]
-  reverie models                  the model catalogue (aliases, sizes, what fits 8 GB); --zorb/--krell take an alias or any HF id
-  reverie run [cuda|mlx] [ufo|ufo-battle] [evolve]   the long form of the above
-  reverie arena check [--load]    verify python/torch/CUDA (or mlx) and the models; --load times them
-  reverie arena pull              download the two models (~5 GB) ahead of the first battle
-  reverie arena lessons           what the commanders learned, and their evolved doctrines
-  reverie reset model | score | all
+  dogfight models                  the model catalogue (aliases, sizes, what fits 8 GB); --zorb/--krell take an alias or any HF id
+  dogfight run [cuda|mlx] [ufo|ufo-battle] [evolve]   the long form of the above
+  dogfight arena check [--load]    verify python/torch/CUDA (or mlx) and the models; --load times them
+  dogfight arena pull              download the two models (~5 GB) ahead of the first battle
+  dogfight arena lessons           what the commanders learned, and their evolved doctrines
+  dogfight reset model | score | all
                                   forget lessons + doctrines / games won and lost / both
-  reverie install [--shell bash|zsh|fish]
+  dogfight install [--shell bash|zsh|fish]
                                   optional: also play whenever your prompt sits idle (screensaver mode)
-  reverie uninstall               remove that shell hook, stop watchers (keeps config, memories, models)
-  reverie remove [--yes] [--keep-models]
+  dogfight uninstall               remove that shell hook, stop watchers (keeps config, memories, models)
+  dogfight remove [--yes] [--keep-models]
                                   uninstall everything: hook, watchers, config, memories, scores,
                                   logs, rc-file backups, the downloaded models, and this binary
-  reverie pause [MINUTES] | resume
-  reverie status                  show config, integration and watchers
-  reverie config                  print the default config (copy to ~/.config/reverie/config.toml)
+  dogfight pause [MINUTES] | resume
+  dogfight status                  show config, integration and watchers
+  dogfight config                  print the default config (copy to ~/.config/dogfight/config.toml)
 
-  reverie bench [--scene NAME] [--size 200x55] [--frames 600] [--seed 42]
-  reverie snapshot --scene NAME [--size 120x36] [--frames 300] [--seed 42] --out FILE
-  reverie init bash|zsh|fish      print the shell snippet (used by install)
-  reverie watch --pid PID [--tty /dev/ttys001] [--idle SECS] [--daemon]
+  dogfight bench [--scene NAME] [--size 200x55] [--frames 600] [--seed 42]
+  dogfight snapshot --scene NAME [--size 120x36] [--frames 300] [--seed 42] --out FILE
+  dogfight init bash|zsh|fish      print the shell snippet (used by install)
+  dogfight watch --pid PID [--tty /dev/ttys001] [--idle SECS] [--daemon]
 ";
 
 struct Args {
@@ -172,7 +172,7 @@ fn snapshot(cfg: &Config, a: &Args) -> i32 {
     0
 }
 
-/// `reverie arena [check|pull]`: the sidecar's own commands, with the user's config applied.
+/// `dogfight arena [check|pull]`: the sidecar's own commands, with the user's config applied.
 fn arena_cmd(cfg: &Config, a: &Args) -> i32 {
     let extra: Vec<&str> = match a.pos.get(1).map(String::as_str) {
         Some("check") => {
@@ -199,7 +199,7 @@ fn arena_cmd(cfg: &Config, a: &Args) -> i32 {
                 }
             }
             if !any {
-                println!("no lessons yet ({}); they appear after the first losses in `reverie arena`", dir.display());
+                println!("no lessons yet ({}); they appear after the first losses in `dogfight arena`", dir.display());
             }
             for team in ["ZORB", "KRELL"] {
                 let p = evolve::doctrine_path(team);
@@ -214,7 +214,7 @@ fn arena_cmd(cfg: &Config, a: &Args) -> i32 {
         }
         Some("forget") => return reset_files(true, false),
         Some(other) => {
-            eprintln!("reverie arena: unknown subcommand '{other}' (check | pull | lessons)");
+            eprintln!("dogfight arena: unknown subcommand '{other}' (check | pull | lessons)");
             return 2;
         }
         None => unreachable!(),
@@ -222,7 +222,7 @@ fn arena_cmd(cfg: &Config, a: &Args) -> i32 {
     let mut cmd = match arena::command(cfg, &extra) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("reverie arena: {e}");
+            eprintln!("dogfight arena: {e}");
             return 1;
         }
     };
@@ -238,14 +238,14 @@ fn arena_cmd(cfg: &Config, a: &Args) -> i32 {
     match cmd.status() {
         Ok(st) => st.code().unwrap_or(1),
         Err(e) => {
-            eprintln!("reverie arena: cannot run {}: {e}\n  cuda: pip install torch transformers    mac: pip install mlx-lm", cfg.lm_python);
+            eprintln!("dogfight arena: cannot run {}: {e}\n  cuda: pip install torch transformers    mac: pip install mlx-lm", cfg.lm_python);
             1
         }
     }
 }
 
 /// Popular small instruct models, all ungated (no licence click-through, no token), with bf16
-/// sizes from the Hugging Face API on 2026-09-10. `reverie models` prints it; `--zorb` / `--krell`
+/// sizes from the Hugging Face API on 2026-09-10. `dogfight models` prints it; `--zorb` / `--krell`
 /// accept an alias or any HF id.
 const MODELS: &[(&str, &str, f32, &str)] = &[
     ("qwen3-0.6b", "Qwen/Qwen3-0.6B", 1.5, "default for ZORB; fast, decisive"),
@@ -276,7 +276,7 @@ fn resolve_model(name: &str) -> String {
     if name.contains('/') {
         return name.to_string();
     }
-    eprintln!("reverie: unknown model alias '{name}'. Use an alias from `reverie models` or a Hugging Face id like org/name.");
+    eprintln!("dogfight: unknown model alias '{name}'. Use an alias from `dogfight models` or a Hugging Face id like org/name.");
     let close: Vec<&str> = MODELS.iter().map(|m| m.0).filter(|a| a.starts_with(&key[..key.len().min(4)])).collect();
     if !close.is_empty() {
         eprintln!("         did you mean: {}", close.join(", "));
@@ -302,9 +302,9 @@ fn models_cmd(cfg: &Config) -> i32 {
     }
     println!("\n* = current pair ({} vs {}).", cfg.lm_model_a, cfg.lm_model_b);
     println!("all of these are ungated (no licence click-through, no token).");
-    println!("swap: reverie --zorb lfm2-1.2b --krell gemma3-1b          (alias or any Hugging Face id, `id@revision` to pin)");
+    println!("swap: dogfight --zorb lfm2-1.2b --krell gemma3-1b          (alias or any Hugging Face id, `id@revision` to pin)");
     println!("keep: lm_model_a / lm_model_b in {}", config::config_path().display());
-    println!("then: reverie arena pull   (download)   reverie arena check --load   (measure peak memory)");
+    println!("then: dogfight arena pull   (download)   dogfight arena check --load   (measure peak memory)");
     println!("mlx: the same ids work through mlx-lm; mlx-community/<name>-4bit repos are smaller and faster.");
     0
 }
@@ -313,19 +313,19 @@ fn cfg_size(id: &str) -> f32 {
     MODELS.iter().find(|m| m.1 == id).map(|m| m.2).unwrap_or(3.0)
 }
 
-/// `reverie remove [--yes] [--keep-models]`: the whole footprint — hook, watchers, config,
-/// state, data, runtime dir, rc-file backups, the models reverie downloaded — then the binary.
+/// `dogfight remove [--yes] [--keep-models]`: the whole footprint — hook, watchers, config,
+/// state, data, runtime dir, rc-file backups, the models dogfight downloaded — then the binary.
 fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
     let keep_models = a.has("keep-models");
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
     let exe = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
-    let cargo_bin = home.join(".cargo/bin/reverie");
+    let cargo_bin = home.join(".cargo/bin/dogfight");
     let mut dirs: Vec<std::path::PathBuf> = vec![config::state_dir(), config::data_dir(), config::runtime_dir()];
     if let Some(c) = config::config_path().parent() {
         dirs.insert(0, c.to_path_buf());
     }
     let hf_hub = std::env::var_os("HF_HOME").map(|h| std::path::PathBuf::from(h).join("hub")).unwrap_or_else(|| home.join(".cache/huggingface/hub"));
-    // only models reverie itself would have downloaded: the catalogue and the configured pair
+    // only models dogfight itself would have downloaded: the catalogue and the configured pair
     let mut ids: Vec<String> = MODELS.iter().map(|m| m.1.to_string()).collect();
     for m in [&cfg.lm_model_a, &cfg.lm_model_b] {
         let id = m.split('@').next().unwrap_or(m).to_string();
@@ -334,11 +334,11 @@ fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
         }
     }
     let models: Vec<std::path::PathBuf> = ids.iter().map(|m| hf_hub.join(format!("models--{}", m.replace('/', "--")))).filter(|p| p.exists()).collect();
-    // backups `reverie install` made of the rc files
+    // backups `dogfight install` made of the rc files
     let mut backups: Vec<std::path::PathBuf> = vec![];
     for sh in ["bash", "zsh"] {
         let Some(rc) = shell::rc_path(sh) else { continue };
-        let prefix = format!("{}.reverie-backup-", rc.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default());
+        let prefix = format!("{}.dogfight-backup-", rc.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default());
         if let Some(rd) = rc.parent().and_then(|d| std::fs::read_dir(d).ok()) {
             backups.extend(rd.flatten().map(|e| e.path()).filter(|p| p.file_name().map(|f| f.to_string_lossy().starts_with(&prefix)).unwrap_or(false)));
         }
@@ -352,7 +352,7 @@ fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
             bins.push(e.clone());
         }
     }
-    println!("reverie remove will delete:");
+    println!("dogfight remove will delete:");
     let hooks = shell::installed();
     println!("  shell hook: {}", if hooks.is_empty() { "none".to_string() } else { hooks.join(", ") });
     for d in &dirs {
@@ -361,7 +361,7 @@ fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
         }
     }
     for b in &backups {
-        println!("  {} (backup of your rc file made by `reverie install`)", b.display());
+        println!("  {} (backup of your rc file made by `dogfight install`)", b.display());
     }
     if keep_models {
         println!("  (kept: {} downloaded model dir(s) in {}, --keep-models)", models.len(), hf_hub.display());
@@ -373,7 +373,7 @@ fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
     for b in &bins {
         println!("  {} (the program itself)", b.display());
     }
-    println!("  (anything else in {} is not reverie's and stays)", hf_hub.display());
+    println!("  (anything else in {} is not dogfight's and stays)", hf_hub.display());
     if !a.has("yes") {
         print!("Remove all of this? [y/N] ");
         use std::io::Write;
@@ -404,7 +404,7 @@ fn remove_cmd(cfg: &Config, a: &Args) -> i32 {
     for b in &bins {
         gone(b, false);
     }
-    println!("reverie is gone{}. Open a new terminal so running shells drop the old trap.", if keep_models { " (models kept)" } else { "" });
+    println!("dogfight is gone{}. Open a new terminal so running shells drop the old trap.", if keep_models { " (models kept)" } else { "" });
     0
 }
 
@@ -417,14 +417,14 @@ fn dir_size_mb(p: &std::path::Path) -> u64 {
     walk(p) / (1024 * 1024)
 }
 
-/// `reverie reset model|score|all`
+/// `dogfight reset model|score|all`
 fn reset_cmd(a: &Args) -> i32 {
     match a.pos.get(1).map(String::as_str) {
         Some("model") => reset_files(true, false),
         Some("score") => reset_files(false, true),
         Some("all") => reset_files(true, true),
         _ => {
-            eprintln!("usage: reverie reset model|score|all\n  model  forget the commanders' lessons and evolved doctrines\n  score  reset games won/lost (and lifetime kills/cows) between the models");
+            eprintln!("usage: dogfight reset model|score|all\n  model  forget the commanders' lessons and evolved doctrines\n  score  reset games won/lost (and lifetime kills/cows) between the models");
             2
         }
     }
@@ -458,12 +458,12 @@ fn reset_files(model: bool, score: bool) -> i32 {
 }
 
 fn main() {
-    // `reverie status | head` must not panic on a closed pipe
+    // `dogfight status | head` must not panic on a closed pipe
     // SAFETY: restoring the default disposition of SIGPIPE has no preconditions.
     unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
     let a = Args::parse();
     if a.has("version") {
-        println!("reverie {}", env!("CARGO_PKG_VERSION"));
+        println!("dogfight {}", env!("CARGO_PKG_VERSION"));
         return;
     }
     if a.has("help") {
@@ -483,7 +483,7 @@ fn main() {
     let cmd = a.pos.first().map(|s| s.as_str()).unwrap_or("ufo-battle");
     let on = |v: &str| !matches!(v.to_lowercase().as_str(), "off" | "false" | "0" | "no");
     let evolve = a.get("lessons").or_else(|| a.get("evolve")).map(on);
-    // `reverie run [cuda|mlx] [ufo|ufo-battle] [evolve]`: positional words pick backend, scene, GA
+    // `dogfight run [cuda|mlx] [ufo|ufo-battle] [evolve]`: positional words pick backend, scene, GA
     let mut scene = a.get("scene").map(String::from);
     let mut pilots = a.get("pilots").map(String::from);
     let mut backend = a.get("backend").map(String::from);
@@ -513,7 +513,7 @@ fn main() {
         duration: a.num("duration"),
     };
     let code = match cmd {
-        // `reverie` / `reverie cuda` / `reverie mlx` / `reverie evolve`: the battle. `reverie ufo`: the baseline.
+        // `dogfight` / `dogfight cuda` / `dogfight mlx` / `dogfight evolve`: the battle. `dogfight ufo`: the baseline.
         "run" | "preview" | "demo" | "play" => app::run(&cfg, run_opts(scene, pilots, backend)),
         "cuda" | "mlx" | "evolve" | "ufo-battle" | "battle" => {
             let mut backend = backend;
@@ -561,7 +561,7 @@ fn main() {
                 0
             }
             None => {
-                eprintln!("usage: reverie init bash|zsh|fish");
+                eprintln!("usage: dogfight init bash|zsh|fish");
                 2
             }
         },
@@ -574,7 +574,7 @@ fn main() {
                     0
                 }
                 Err(e) => {
-                    eprintln!("reverie: {e}");
+                    eprintln!("dogfight: {e}");
                     1
                 }
             }
@@ -582,7 +582,7 @@ fn main() {
         "uninstall" => {
             println!("{}", shell::uninstall());
             println!(
-                "kept: {}, {}, {} and the models in the Hugging Face cache.\nuse `reverie remove` to delete everything.",
+                "kept: {}, {}, {} and the models in the Hugging Face cache.\nuse `dogfight remove` to delete everything.",
                 config::config_path().parent().map(|p| p.display().to_string()).unwrap_or_default(),
                 config::state_dir().display(),
                 config::data_dir().display()
@@ -595,7 +595,7 @@ fn main() {
             idle::set_pause(m);
             match m {
                 Some(m) => println!("paused for {m} min"),
-                None => println!("paused until `reverie resume`"),
+                None => println!("paused until `dogfight resume`"),
             }
             0
         }
@@ -608,7 +608,7 @@ fn main() {
             for (n, d) in scenes::NAMES {
                 println!("  {n:<8} {d}");
             }
-            println!("\nbackend for ufo-battle: {} (config lm_backend; or `reverie run cuda|mlx ufo-battle`)", cfg.lm_backend);
+            println!("\nbackend for ufo-battle: {} (config lm_backend; or `dogfight run cuda|mlx ufo-battle`)", cfg.lm_backend);
             0
         }
         "config" => {
@@ -630,7 +630,7 @@ fn main() {
                 if cfg.lm_evolve { "on" } else { "off" }
             );
             let inst = shell::installed();
-            println!("installed:   {}", if inst.is_empty() { "no (run `reverie install`)".to_string() } else { inst.join(", ") });
+            println!("installed:   {}", if inst.is_empty() { "no (run `dogfight install`)".to_string() } else { inst.join(", ") });
             println!("paused:      {}", idle::paused());
             println!("state:       {}", config::state_dir().display());
             println!("arena log:   {}", arena::log_path().display());
@@ -639,7 +639,7 @@ fn main() {
         "bench" => bench(&cfg, &a),
         "snapshot" => snapshot(&cfg, &a),
         other => {
-            eprintln!("reverie: unknown command '{other}'\n");
+            eprintln!("dogfight: unknown command '{other}'\n");
             eprint!("{HELP}");
             2
         }
