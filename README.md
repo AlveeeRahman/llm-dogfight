@@ -10,9 +10,6 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![on Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Space-yellow)](https://huggingface.co/spaces/AlveRahman/llm-dogfight)
 
-**Documentation**: [alveeerahman.github.io/llm-dogfight](https://alveeerahman.github.io/llm-dogfight/) ·
-mirrored on the [Hugging Face Space](https://huggingface.co/spaces/AlveRahman/llm-dogfight)
-
 ![LLM Dogfight: a live battle between two local models](eval/snapshots/battle.png)
 
 </div>

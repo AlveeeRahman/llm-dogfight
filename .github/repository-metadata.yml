@@ -90,7 +90,7 @@ suite:
 
 # The files that repeat the facts above. Keep them in step by hand.
 appears_in:
-  - README.md
+  - README.md (H1 only; no documentation line by choice)
   - Cargo.toml (description, homepage, repository, keywords)
   - docs/index.html
   - docs/sitemap.xml
