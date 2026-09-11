@@ -71,13 +71,22 @@ was) and writes one rule to avoid that fate. Rules stay in its prompt for the re
 session and persist on disk, so a pair of models keeps evolving across battles. Nothing is
 fine-tuned; this is in-context learning, which is what fits next to a game on an 8 GB card.
 
-**Evolve.** With `reverie evolve`, each team also carries a *doctrine*: six tactical
-parameters with hard bounds (when to flee, when fleeing is forbidden, how close a cow must be
-and how far the enemy, how often to focus fire, how much of the fleet may retreat at once).
-The doctrine is spelled out in the model's prompt and enforced on every order it gives, and a
-genetic algorithm scores the active doctrine over each game and breeds the next generation.
-The model explores tactics only inside a heuristic envelope, and the envelope is what evolves.
-It runs in Rust with no extra model calls, so it costs nothing.
+**Doctrine.** Each team flies under a *doctrine*: six tactical parameters with hard bounds
+(when a damaged ship must flee, when fleeing is forbidden, how much of the fleet may retreat
+at once, how often to focus fire, and advice on when a cow is worth going for). It is spelled
+out in the model's prompt, and the flee rules are enforced on every order: small models
+otherwise drift into retreating with healthy ships, and both sides must play the same game.
+Abducting is never corrected. It is the model's own call, and it is the most telling one: a
+commander that leaves the fight for a cow when the enemy is far is reading the field and
+weighing points against risk; one that beams cows under fire is greedy; one that never goes
+for a cow at all is either cautious or simply not reading the openings the prompt spells out.
+
+**Evolve.** With `reverie evolve`, a genetic algorithm scores each team's active doctrine over
+every game (kills minus losses plus half the cows, per minute) and breeds the next generation
+from the best ones, separately for the two teams and in parallel. The model explores tactics
+only inside a heuristic envelope, and the envelope is what evolves. It runs in Rust with no
+extra model calls, so it costs nothing; populations persist per team in
+`~/.local/state/reverie/doctrine-*.txt` and `reverie arena lessons` shows them.
 
 ## Models
 

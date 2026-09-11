@@ -86,7 +86,7 @@ impl Doctrine {
     /// What the commander is told (and what `check` enforces).
     pub fn describe(&self) -> String {
         format!(
-            "flee below {:.0} hp when an enemy is in laser range; never flee above {:.0} hp; abduct only a cow within {:.0} when no enemy is within {:.1}x laser range; focus fire on the weakest enemy {:.0}% of the time; at most {:.0}% of the fleet may flee at once",
+            "flee below {:.0} hp when an enemy is in laser range; never flee above {:.0} hp; go for a cow when it is within {:.0} and no enemy is within {:.1}x laser range (your call); focus fire on the weakest enemy {:.0}% of the time; at most {:.0}% of the fleet may flee at once",
             self.flee_hp,
             self.brave_hp,
             self.abduct_dist,

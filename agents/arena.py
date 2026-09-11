@@ -45,6 +45,8 @@ TEMPLATE_ECHO = re.compile(r"battle cry|defiant|own words|characters|<|>", re.I)
 STOPWORDS = {"always", "never", "prioritize", "prioritise", "the", "a", "an", "to", "of", "and", "or", "over", "when", "is",
              "are", "in", "on", "with", "for", "your", "our", "them", "they", "it", "should", "must", "instead", "rather", "than"}
 MAX_LESSONS = 8
+# lessons must speak the game's language; anything about verbs that don't exist is noise
+BAD_LESSON = re.compile(r"\b(guard|patrol|warp|repair|heal|shield|reload|hide|deploy)\w*", re.I)
 
 
 def log(*a):
@@ -224,16 +226,17 @@ class Lessons:
         self.items = []
         if path and os.path.exists(path):
             with open(path, encoding="utf-8") as f:
-                self.items = [line.strip() for line in f if line.strip()][-MAX_LESSONS:]
+                self.items = [line.strip() for line in f if line.strip() and not BAD_LESSON.search(line)][-MAX_LESSONS:]
 
     @staticmethod
     def words(text):
         return {w for w in re.findall(r"[a-z]+", text.lower()) if w not in STOPWORDS}
 
     def add(self, text):
-        """Keep a lesson unless it is (nearly) the same as one already known."""
+        """Keep a lesson unless it is (nearly) the same as one already known, or talks about
+        orders that do not exist."""
         text = text.strip()
-        if not text:
+        if not text or BAD_LESSON.search(text):
             return
         w = self.words(text)
         for old in self.items:
@@ -306,7 +309,9 @@ def describe(obs):
         lines.append(f"Saucers in the air: {me} {al[team]}, {foe} {al[1 - team]} (max {obs.get('max_alive', 4)} each). "
                      f"Reinforcements left this game: {me} {rg[team]}, {foe} {rg[1 - team]}. A team with no saucer in the air loses the game.")
     if obs.get("doctrine"):
-        lines.append(f"Your doctrine (generation {obs.get('gen', 0)}, enforced by your ship AI; orders outside it are corrected): "
+        gen = obs.get("gen", 0)
+        head = f"Your doctrine (generation {gen}, " if gen else "Your doctrine ("
+        lines.append(head + "enforced by your ship AI; orders outside it are corrected): "
                      f"{obs['doctrine']}." + (f" {obs['corrected']} of your last orders were corrected." if obs.get("corrected") else ""))
     lines.append("Your ships (S):")
     for s in obs["mine"]:
@@ -323,6 +328,12 @@ def describe(obs):
         lines.append("- (none in the air)")
     cows = ", ".join(f"C{c['id']} at x={c['x']} {c['state']}" for c in obs["cows"]) or "none"
     lines.append(f"Cows (C) on the ground: {cows}")
+    # spell out the openings: small models rarely infer them from the numbers alone
+    openings = [f"S{s['id']} could abduct C{s['cow']} now (cow at distance {s['cowd']}, "
+                + (f"nearest enemy at {s['dist']})" if s.get("near", -1) >= 0 else "no enemy in the air)")
+                for s in obs["mine"] if s.get("cow", -1) >= 0 and s["cowd"] <= 25 and (s.get("near", -1) < 0 or s["dist"] >= 40)]
+    if openings:
+        lines.append("Abduction openings, each worth a point: " + "; ".join(openings) + ".")
     if obs.get("events"):
         lines.append("Recent events: " + "; ".join(obs["events"]))
     if obs.get("foe_say"):

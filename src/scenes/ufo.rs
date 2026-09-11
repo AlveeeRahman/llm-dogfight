@@ -21,7 +21,7 @@ use super::{Scene, Starfield};
 use crate::arena::{json_str, Arena, Msg, Order};
 use crate::canvas::Canvas;
 use crate::config::{state_dir, Config};
-use crate::evolve::{Population, SEGMENT};
+use crate::evolve::{Doctrine, Population, SEGMENT};
 use crate::math::{gradient, vnoise, Rgb};
 use crate::rng::Rng;
 use std::f32::consts::TAU;
@@ -200,7 +200,8 @@ pub struct Ufo {
     clouds: Vec<Cloud>,
     lights: Vec<Light>,
     stars: Starfield,
-    barn_x: f32,
+    /// two barns, one per side of the field; replacement cows walk out of the emptier side
+    barns: [f32; 2],
     score: [u32; 2],
     cows_taken: [u32; 2],
     game: Game,
@@ -232,7 +233,7 @@ impl Ufo {
             clouds: vec![],
             lights: vec![],
             stars,
-            barn_x: 0.0,
+            barns: [0.0; 2],
             score: [0; 2],
             cows_taken: [0; 2],
             game: Game {
@@ -353,6 +354,16 @@ impl Ufo {
 
     fn new_cow(&mut self, x: f32) -> Cow {
         let goal = self.rng.range(0.06, 0.94) * self.w;
+        Cow { x, y: self.ground + 3.0, lift: 0.0, dir: if goal > x { 1.0 } else { -1.0 }, goal, walk: self.rng.range(0.0, TAU), graze: 0.0 }
+    }
+
+    /// A replacement cow walks out of the barn on the side that has fewer cows and grazes on
+    /// that side, so the herd stays balanced between the two teams' halves.
+    fn replacement_cow(&mut self) -> Cow {
+        let left = self.cows.iter().filter(|c| c.x < self.w * 0.5).count();
+        let side = if left * 2 <= self.cows.len() { 0 } else { 1 };
+        let x = self.barns[side];
+        let goal = if side == 0 { self.rng.range(0.08, 0.46) } else { self.rng.range(0.54, 0.92) } * self.w;
         Cow { x, y: self.ground + 3.0, lift: 0.0, dir: if goal > x { 1.0 } else { -1.0 }, goal, walk: self.rng.range(0.0, TAU), graze: 0.0 }
     }
 
@@ -525,9 +536,8 @@ impl Ufo {
                     self.cows[c].lift += dt * 0.5;
                     if self.cows[c].lift >= 1.0 {
                         self.rings.push(Ring { x: me.x, y: me.y, r: s, speed: s * 3.0, life: 0.5, col: TEAM_COL[me.team] });
-                        // the herd is replenished from the barn
-                        let bx = self.barn_x;
-                        self.cows[c] = self.new_cow(bx);
+                        // the herd is replenished from the barn on the emptier side
+                        self.cows[c] = self.replacement_cow();
                         self.cows_taken[me.team] += 1;
                         self.mlog(&format!("cow: {} S{} abducted C{c}", TEAM_NAME[me.team], me.id));
                         abduct = None;
@@ -953,11 +963,18 @@ impl Ufo {
 
     /// Genetic mode: an order the model gave, checked against the team's doctrine. Returns the
     /// order that is actually flown and whether it had to be corrected.
+    fn doctrine(&self, team: usize) -> Doctrine {
+        self.lm.as_ref().and_then(|l| l.pop.as_ref()).map(|p| p[team].active()).unwrap_or_else(Doctrine::default_doctrine)
+    }
+
+    /// The team's doctrine, checked against an order the model gave. Always on (with the default
+    /// doctrine unless `evolve` is breeding one): small models drift into fleeing with healthy
+    /// ships or beaming cows under fire, and the bounds keep both sides playing the same game.
+    /// Returns the order that is actually flown and whether it had to be corrected.
     fn apply_doctrine(&self, i: usize, order: Order, fleeing: usize) -> (Order, bool) {
-        let Some(d) = self.lm.as_ref().and_then(|l| l.pop.as_ref()).map(|p| p[self.ships[i].team].active()) else { return (order, false) };
+        let d = self.doctrine(self.ships[i].team);
         let me = &self.ships[i];
         let range = self.s * 16.0;
-        let k = 100.0 / self.w;
         let threat = self.nearest_enemy(i).map_or(f32::MAX, |b| b.1);
         let allowed_fleeing = ((d.courage * self.alive_count(me.team) as f32).ceil() as usize).max(1);
         // 1. a badly damaged ship with an enemy in range must flee
@@ -967,17 +984,9 @@ impl Ufo {
         match order {
             // 2. no fleeing at high hp, and not the whole fleet at once
             Order::Flee if me.hp > d.brave_hp || fleeing >= allowed_fleeing => (Order::Hunt, true),
-            // 3. abduct only a close cow with no enemy nearby
-            Order::Abduct(c) => {
-                let ok = c < self.cows.len()
-                    && ((self.cows[c].x - me.x).powi(2) + (self.cows[c].y - me.y).powi(2)).sqrt() * k <= d.abduct_dist
-                    && threat >= d.abduct_clear * range;
-                if ok {
-                    (order, false)
-                } else {
-                    (Order::Hunt, true)
-                }
-            }
+            // 3. abducting is the model's own call: the doctrine only advises on it (what a
+            //    commander does with cows says a lot about it), so it is never corrected
+            Order::Abduct(_) => (order, false),
             // 4. focus fire: sometimes redirect to the weakest enemy in range
             Order::Attack(t) => {
                 let weakest = self
@@ -1004,7 +1013,7 @@ impl Ufo {
         let pc = |v: f32| (v * k).round() as i32;
         let lm = self.lm.as_ref().unwrap();
         let mut o = String::with_capacity(1024);
-        let doctrine = lm.pop.as_ref().map(|p| p[team].active().describe()).unwrap_or_default();
+        let doctrine = self.doctrine(team).describe();
         let gen = lm.pop.as_ref().map_or(0, |p| p[team].gen);
         o.push_str(&format!(
             "{{\"t\":\"obs\",\"team\":{team},\"tick\":{tick},\"score\":[{},{}],\"cows_taken\":[{},{}],\"rounds\":[{},{}],\"round\":{},\"regens\":[{},{}],\"alive\":[{},{}],\"max_alive\":{},\"doctrine\":{},\"gen\":{gen},\"corrected\":{},\"fh\":{},\"ground\":{},\"range\":{},\"mine\":[",
@@ -1370,7 +1379,8 @@ impl Scene for Ufo {
             x += bw + self.rng.below(2) as i32;
         }
         // the farm: barn on the left, ten cows spread evenly over the field
-        self.barn_x = (self.w * 0.06).max(self.s * 2.0);
+        let inset = (self.w * 0.06).max(self.s * 2.0);
+        self.barns = [inset, self.w - inset];
         self.cows.clear();
         for i in 0..NCOWS {
             let x = self.w * (0.10 + 0.82 * (i as f32 + 0.5) / NCOWS as f32) + self.rng.range(-2.0, 2.0);
@@ -1716,11 +1726,11 @@ impl Scene for Ufo {
             cv.set(x, gi + 1, Rgb::hex(0x2c2014));
             cv.blend(x + 1, gi, Rgb::hex(0x3d2c1c), 0.5);
         }
-        // barn
-        {
+        // two barns, one per side
+        for &barn_x in &self.barns {
             let bw = (s * 2.4) as i32;
             let bh = (s * 1.3) as i32;
-            let bx = self.barn_x as i32 - bw / 2;
+            let bx = barn_x as i32 - bw / 2;
             cv.rect(bx, gi - bh, bw, bh, Rgb::hex(0x5a1e1e), 1.0);
             for r in 0..(bh / 2 + 1) {
                 let inset = r * bw / (bh + 1);

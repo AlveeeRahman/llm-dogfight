@@ -41,8 +41,12 @@ GEN = dict(OBS, regens=[14, 20], alive=[3, 4], max_alive=4, gen=2, corrected=1,
 pg = arena.describe(GEN)
 check("prompt carries reinforcements and doctrine",
       "Reinforcements left this game: ZORB 14, KRELL 20" in pg and "Your doctrine (generation 2" in pg and "1 of your last orders were corrected" in pg)
-check("no doctrine line without evolve", "doctrine" not in p)
+check("doctrine line without a generation number", "Your doctrine (enforced" in arena.describe(dict(OBS, doctrine="never flee above 70 hp", gen=0)))
 check("prompt offers only attack/hunt/flee/abduct", "patrol" not in p and "guard" not in p and "DEPLOY" not in p and "abduct C<n>" in p)
+check("abduction openings are spelled out", "S0 could abduct C0 now (cow at distance 9, nearest enemy at 30)" not in p
+      and "Abduction openings" not in p)
+far = dict(OBS, mine=[dict(OBS["mine"][0], dist=55)])
+check("abduction opening when the enemy is far", "S0 could abduct C0 now (cow at distance 9, nearest enemy at 55)" in arena.describe(far))
 check("prompt carries enemy comms and events", 'Enemy commander said: "Moo to you!"' in p and "Recent events: your S3" in p)
 
 # replies: tidy, sloppy, thinking tags, junk
@@ -78,9 +82,14 @@ with tempfile.TemporaryDirectory() as tmp:
         L.add(item)
     L.add("retreat from three enemies")  # duplicate ignored
     check("lessons capped and persisted", len(L.items) == arena.MAX_LESSONS and open(path).read().count("\n") == arena.MAX_LESSONS, str(L.items))
+    L4 = arena.Lessons(None)
+    L4.add("Prioritize 'guard' before 'flee' to protect your saucer.")
+    L4.add("Always warp before engaging.")
+    L4.add("Abduct a cow only when no enemy is within laser range.")
+    check("lessons about non-existent orders are dropped", L4.items == ["Abduct a cow only when no enemy is within laser range."], str(L4.items))
     L3 = arena.Lessons(None)
-    L3.add("Always prioritize healing damaged ships over fleeing.")
-    L3.add("Prioritize healing damaged ships over retreating.")
+    L3.add("Always prioritize attacking damaged enemies over fleeing.")
+    L3.add("Prioritize attacking damaged enemies over retreating.")
     L3.add("Never abduct cows while an enemy is within laser range.")
     check("near-duplicate lessons are merged", len(L3.items) == 2, str(L3.items))
     L2 = arena.Lessons(path)

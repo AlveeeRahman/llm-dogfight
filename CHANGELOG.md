@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.5 — 2026-09-10
+
+- The doctrine's flee rules now apply in every battle (default values; `evolve` breeds them),
+  so both sides play the same game; abduction is never corrected and is the model's own call.
+- A second barn on the right; replacement cows come from the emptier side.
+- The prompt spells out abduction openings; lessons that mention orders that do not exist are
+  dropped.
+
 ## 0.3.4 — 2026-09-10
 
 - The sidecar's GPU memory cap is now `auto` (card memory minus 2 GB) instead of a fixed 6 GB,
