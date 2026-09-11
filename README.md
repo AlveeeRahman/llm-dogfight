@@ -289,17 +289,6 @@ The tool takes over your terminal, so it is built to be small, memory-safe and e
 
 Details and the threat model: [SECURITY.md](SECURITY.md).
 
-## Continuous integration and delivery
-
-| workflow | when | what |
-|---|---|---|
-| **ci** | every push and pull request | rustfmt, clippy with every lint as an error, `cargo audit`, locked build, frame benchmark against locked thresholds, a pty harness (start, key exit, screen and termios restore, SIGTERM), the sidecar tests, `bandit` and `ruff`; the same on macOS |
-| **ci › release** | every `v*` tag | builds `dogfight` for Linux x86_64 and macOS Apple silicon, packages tarballs with SHA-256 sums and publishes a GitHub Release with generated notes |
-| **models** | weekly, and on demand | pulls the default pair from Hugging Face on a clean runner and checks that every catalogue model is public and loadable, using a Hugging Face token stored as a repository secret |
-| **publish to hugging face** | every published release, and on demand | mirrors the README as the card of the [Hugging Face Space](https://huggingface.co/spaces/AlveRahman/llm-dogfight) and uploads the release tarballs there under `releases/<tag>/`, so the tool is delivered on both GitHub and Hugging Face |
-
-Run the whole gate locally with `scripts/qa.sh --full`.
-
 ## Development
 
 ```sh
