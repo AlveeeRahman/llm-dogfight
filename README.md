@@ -135,7 +135,10 @@ reverie --zorb deepseek-r1-1.5b --krell qwen3-1.7b     # 7.9 GB: a card above 8 
 An alias that is not in the catalogue is refused with a hint rather than started; a Hugging
 Face id (`org/name`) is always accepted as typed.
 
-To keep a pair, set `lm_model_a` and `lm_model_b` in the config. Any Hugging Face model with
+No Hugging Face account or token is needed for any of them. If a download fails with
+"rate-limiting anonymous downloads (HTTP 429)", Hugging Face is throttling your IP after many
+anonymous requests; wait a few minutes, or set `HF_TOKEN` to a free read token for a higher
+limit. To keep a pair, set `lm_model_a` and `lm_model_b` in the config. Any Hugging Face model with
 a chat template and safetensors weights works; append `@<commit>` to pin the weights. On MLX
 the same ids work through mlx-lm, and the `mlx-community/*-4bit` repos are smaller and faster.
 Sizes above are bf16 safetensors as reported by the Hugging Face API in September 2026. The

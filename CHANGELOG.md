@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.7 — 2026-09-10
+
+- Downloads retry on Hugging Face rate limits (HTTP 429) and the HUD explains 429, gated and
+  unknown-model failures in plain words.
+
 ## 0.3.6 — 2026-09-10
 
 - One bolt in flight per saucer; the next shot follows 200 ms after the previous one lands or

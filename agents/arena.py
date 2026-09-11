@@ -181,11 +181,33 @@ class MlxBackend:
 
 
 def oom_hint(e):
-    """One line for the HUD/log: out-of-memory gets an actionable hint, anything else its first line."""
+    """One line for the HUD/log: known failures get an actionable hint, anything else its first line."""
     msg = str(e).splitlines()[0] if str(e) else repr(e)
-    if "out of memory" in msg.lower():
+    low = msg.lower()
+    if "out of memory" in low:
         return "GPU memory cap reached: this pair does not fit; raise lm_vram_gb (or set it to \"auto\"), use lm_quant = \"8bit\", or pick a smaller model"
+    if "429" in msg or "too many requests" in low or "rate limit" in low:
+        return "Hugging Face is rate-limiting anonymous downloads (HTTP 429): wait a few minutes, or set HF_TOKEN (free account, read token) for a higher limit"
+    if "401" in msg or "403" in msg or "gated" in low:
+        return "this model is gated or private on Hugging Face: accept its licence there and set HF_TOKEN, or pick an ungated one (reverie models)"
+    if "does not appear to have" in low or "not a valid model identifier" in low or "404" in msg:
+        return "no such model on Hugging Face: check the id (org/name) or pick one from `reverie models`"
     return msg[:160]
+
+
+def with_retries(fn, what, tries=4):
+    """Downloads hit transient 429s; wait and try again before giving up."""
+    for k in range(tries):
+        try:
+            return fn()
+        except Exception as e:  # noqa: BLE001
+            if k == tries - 1 or not ("429" in str(e) or "too many requests" in str(e).lower()):
+                raise
+            wait = 15 * (k + 1)
+            log(f"{what}: rate-limited by Hugging Face, retrying in {wait}s")
+            emit(f"STATUS rate-limited by Hugging Face, retrying {what} in {wait}s")
+            time.sleep(wait)
+    return None
 
 
 def pick_backend(name):
@@ -462,7 +484,7 @@ def pull(args):
     for spec in (args.model_a, args.model_b):
         mid, rev = split_rev(spec)
         t0 = time.time()
-        p = snapshot_download(mid, revision=rev, allow_patterns=pats)
+        p = with_retries(lambda m=mid, r=rev: snapshot_download(m, revision=r, allow_patterns=pats), f"downloading {mid}")
         print(f"{mid} -> {p} ({time.time() - t0:.0f}s)")
     return 0
 
@@ -484,7 +506,7 @@ def serve(args):
         emit(f"STATUS {'loading' if is_cached(mid) else 'downloading (first run, a few minutes)'} {label_of(mid)} for {TEAM_NAMES[team]}")
         try:
             t0 = time.time()
-            c = be.load(mid)
+            c = with_retries(lambda m=mid: be.load(m), f"loading {label_of(mid)}")
             log(f"loaded {mid} in {time.time() - t0:.1f}s, peak {be.mem_gb():.2f} GB")
         except Exception as e:  # noqa: BLE001
             emit(f"ERROR loading {label_of(mid)}: {oom_hint(e)}")
