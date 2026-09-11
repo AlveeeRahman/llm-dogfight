@@ -26,7 +26,6 @@ jobs:
       - run: python3 eval/check_bench.py bench.jsonl
       - run: python3 eval/test_terminal.py          # pty harness: start, key exit, screen/termios restore, SIGTERM
       - run: python3 eval/test_arena.py             # sidecar prompt/parse/lessons, no GPU needed
-      - run: python3 eval/test_publish_hf.py        # README link rewriting for the Space card, no network
       - run: pip install --quiet bandit ruff && bandit -q -r agents/ scripts/ && ruff check agents/ eval/test_arena.py scripts/
 
   macos:

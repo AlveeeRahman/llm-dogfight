@@ -13,7 +13,6 @@ name: LLM Dogfight
 
 canonical_url: https://alveeerahman.github.io/llm-dogfight/
 sitemap_url: https://alveeerahman.github.io/llm-dogfight/sitemap.xml
-mirror_url: https://huggingface.co/spaces/AlveRahman/llm-dogfight   # Space card + release mirror; its page points its canonical at canonical_url
 
 # One precise phrase. It belongs in the title, the opening paragraph, one heading and
 # the repository description -- once each, not repeated for its own sake.
@@ -94,5 +93,4 @@ appears_in:
   - Cargo.toml (description, homepage, repository, keywords)
   - docs/index.html
   - docs/sitemap.xml
-  - space/landing.html (the Hugging Face Space page, via scripts/publish_hf.py)
   - github.com repository description, homepage and topics

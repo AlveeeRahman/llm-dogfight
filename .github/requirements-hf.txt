@@ -1,7 +1,7 @@
-# Python dependencies for the two workflows that carry the Hugging Face token
-# (publish-hf.yml, models.yml). Versions and hashes are pinned so `pip install
-# --require-hashes` refuses anything that is not exactly this set. Regenerate with:
-#   printf "huggingface_hub\nmarkdown\n" > req.in && pip-compile --generate-hashes -o .github/requirements-hf.txt req.in
+# Python dependencies for the workflow that carries the Hugging Face token (models.yml).
+# Versions and hashes are pinned so `pip install --require-hashes` refuses anything that is
+# not exactly this set. Regenerate with:
+#   printf "huggingface_hub\n" > req.in && pip-compile --generate-hashes -o .github/requirements-hf.txt req.in
 anyio==4.15.1 \
     --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101 \
     --hash=sha256:9f28306018cbd6d329e64a36d58256edff76dd996fe423bc957326e578b82a94
@@ -65,10 +65,6 @@ idna==3.19 \
     # via
     #   anyio
     #   httpx
-markdown==3.10.3 \
-    --hash=sha256:3589362618f743188b4d955b874402bc814f4f83f544dc207719f4baa7d9c45f \
-    --hash=sha256:fa6c92a00a4a3c98b22728c64a935ae1928250ae65058a6ded814d2cc29a4cea
-    # via -r req.in
 packaging==26.3 \
     --hash=sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79 \
     --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c

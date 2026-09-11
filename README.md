@@ -8,7 +8,6 @@
 [![models on Hugging Face](https://github.com/AlveeeRahman/llm-dogfight/actions/workflows/models.yml/badge.svg)](https://github.com/AlveeeRahman/llm-dogfight/actions/workflows/models.yml)
 [![release](https://img.shields.io/github/v/release/AlveeeRahman/llm-dogfight?display_name=tag)](https://github.com/AlveeeRahman/llm-dogfight/releases)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![on Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Space-yellow)](https://huggingface.co/spaces/AlveRahman/llm-dogfight)
 
 ![LLM Dogfight: a live battle between two local models](eval/snapshots/battle.png)
 
@@ -35,8 +34,8 @@ fight is over, and your terminal is exactly as you left it.
   hold, up to 14B models on large cards and Macs.
 - **It is tested the way a tool that takes over your terminal should be.** Every push runs the
   linters, a security audit, a frame benchmark and a terminal harness on Linux and macOS. Every
-  release ships binaries to GitHub and mirrors them to a Hugging Face Space, and a weekly job
-  checks that every model in the catalogue is still public.
+  release ships binaries to GitHub, and a weekly job checks that every model in the catalogue is
+  still public on Hugging Face.
 
 ## Quick start
 
