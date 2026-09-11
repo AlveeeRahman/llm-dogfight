@@ -100,20 +100,27 @@ class TorchBackend:
             if sys.platform == "darwin":
                 raise RuntimeError("no CUDA on macOS: use `dogfight run mlx ufo-battle` (pip install mlx-lm)")
             raise RuntimeError("torch has no CUDA device (install a CUDA build of torch: https://pytorch.org/get-started/locally/)")
-        self.dev = torch.device("cuda")
+        # two GPUs: one commander per card; otherwise both share cuda:0
+        self.ngpu = torch.cuda.device_count()
+        self.devs = [torch.device("cuda:0"), torch.device("cuda:1" if self.ngpu >= 2 else "cuda:0")]
+        self.dev = self.devs[0]
         total = torch.cuda.get_device_properties(0).total_memory
         self.total_gb = total / 2**30
-        # Hard cap: the caching allocator refuses to grow past the budget instead of
+        # Hard cap per device: the caching allocator refuses to grow past the budget instead of
         # spilling into memory the desktop or another program needs. 0 = auto: the card
         # minus 2 GB, so an 8 GB card gets 6 GB and a 24 GB card gets 22 GB.
         self.cap_gb = vram_gb if vram_gb > 0 else max(4.0, self.total_gb - 2.0)
-        frac = min(1.0, self.cap_gb * 2**30 / total)
-        torch.cuda.set_per_process_memory_fraction(frac, 0)
+        for i in range(min(self.ngpu, 2)):
+            t = torch.cuda.get_device_properties(i).total_memory
+            torch.cuda.set_per_process_memory_fraction(min(1.0, self.cap_gb * 2**30 / t), i)
+        self._slot = 0
         self.dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         self.quant = quant
 
     def load(self, model_id):
         from transformers import AutoModelForCausalLM, AutoTokenizer
+        dev = self.devs[self._slot % 2]
+        self._slot += 1
         model_id, rev = split_rev(model_id)
         tok = AutoTokenizer.from_pretrained(model_id, revision=rev)
         kw = {}
@@ -121,20 +128,22 @@ class TorchBackend:
             from transformers import BitsAndBytesConfig  # needs `pip install bitsandbytes`
             kw["quantization_config"] = BitsAndBytesConfig(load_in_8bit=(self.quant == "8bit"), load_in_4bit=(self.quant == "4bit"),
                                                            bnb_4bit_compute_dtype=self.dtype)
-            kw["device_map"] = {"": 0}
+            kw["device_map"] = {"": dev.index or 0}
         try:
             model = AutoModelForCausalLM.from_pretrained(model_id, revision=rev, dtype=self.dtype, **kw)
         except TypeError:  # transformers < 5 spelling
             model = AutoModelForCausalLM.from_pretrained(model_id, revision=rev, torch_dtype=self.dtype, **kw)
         if "device_map" not in kw:
-            model.to(self.dev)
+            model.to(dev)
         model.eval()
-        return Commander(model_id, model, tok)
+        c = Commander(model_id, model, tok)
+        c.dev = dev
+        return c
 
     def generate(self, c, messages, max_new):
         torch = self.torch
         text = chat_text(c.tok, messages)
-        ids = c.tok(text, return_tensors="pt").to(self.dev)
+        ids = c.tok(text, return_tensors="pt").to(getattr(c, "dev", self.dev))
         pad = c.tok.pad_token_id if c.tok.pad_token_id is not None else c.tok.eos_token_id
         with torch.inference_mode():
             out = c.model.generate(**ids, max_new_tokens=max_new, do_sample=True, temperature=0.7, top_p=0.9, top_k=40,
@@ -143,11 +152,12 @@ class TorchBackend:
         return c.tok.decode(out[0, n_in:], skip_special_tokens=True), int(out.shape[1] - n_in)
 
     def mem_gb(self):
-        return self.torch.cuda.max_memory_reserved() / 2**30
+        return sum(self.torch.cuda.max_memory_reserved(i) for i in range(min(self.ngpu, 2))) / 2**30
 
     def device_desc(self):
         p = self.torch.cuda.get_device_properties(0)
-        return f"{p.name}, {self.total_gb:.1f} GB, cap {self.cap_gb:.1f} GB, dtype {str(self.dtype).split('.')[-1]}"
+        gpus = f"{p.name} x{self.ngpu} (one model per GPU)" if self.ngpu >= 2 else p.name
+        return f"{gpus}, {self.total_gb:.1f} GB, cap {self.cap_gb:.1f} GB per GPU, dtype {str(self.dtype).split('.')[-1]}"
 
 
 class MlxBackend:
@@ -559,7 +569,7 @@ def serve(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model-a", default="Qwen/Qwen3-0.6B")
-    ap.add_argument("--model-b", default="HuggingFaceTB/SmolLM2-1.7B-Instruct")
+    ap.add_argument("--model-b", default="HuggingFaceTB/SmolLM2-360M-Instruct")
     ap.add_argument("--backend", default="cuda", choices=["auto", "cuda", "mlx"])
     ap.add_argument("--vram-gb", type=float, default=0.0, help="CUDA memory cap for this process (both models); 0 = card memory - 2 GB")
     ap.add_argument("--quant", default="none", choices=["none", "8bit", "4bit"], help="bitsandbytes quantization (cuda)")

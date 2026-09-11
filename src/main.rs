@@ -252,8 +252,8 @@ const MODELS: &[(&str, &str, f32, &str)] = &[
     ("qwen3-1.7b", "Qwen/Qwen3-1.7B", 4.1, "stronger Qwen; pair with a small partner"),
     ("qwen2.5-0.5b", "Qwen/Qwen2.5-0.5B-Instruct", 1.0, "tiny and quick"),
     ("qwen2.5-1.5b", "Qwen/Qwen2.5-1.5B-Instruct", 3.1, ""),
-    ("smollm2-360m", "HuggingFaceTB/SmolLM2-360M-Instruct", 0.7, "under 1B: often skips the order format (ships keep their last order)"),
-    ("smollm2-1.7b", "HuggingFaceTB/SmolLM2-1.7B-Instruct", 3.4, "default for KRELL; good instruction following"),
+    ("smollm2-360m", "HuggingFaceTB/SmolLM2-360M-Instruct", 0.7, "default for KRELL; tiny, fast, sometimes skips the order format"),
+    ("smollm2-1.7b", "HuggingFaceTB/SmolLM2-1.7B-Instruct", 3.4, "good instruction following; the classic KRELL"),
     ("gemma3-1b", "unsloth/gemma-3-1b-it", 2.0, "Google's Gemma 3 1B, ungated mirror"),
     ("lfm2-1.2b", "LiquidAI/LFM2-1.2B", 2.3, "Liquid AI, built for on-device use"),
     ("lfm2-700m", "LiquidAI/LFM2-700M", 1.5, "under 1B: often skips the order format"),
@@ -264,7 +264,43 @@ const MODELS: &[(&str, &str, f32, &str)] = &[
     ("granite3.3-2b", "ibm-granite/granite-3.3-2b-instruct", 5.1, "needs lm_quant = \"8bit\" next to a partner"),
     ("smollm3-3b", "HuggingFaceTB/SmolLM3-3B", 6.2, "needs lm_quant = \"8bit\" next to a partner"),
     ("qwen2.5-3b", "Qwen/Qwen2.5-3B-Instruct", 6.2, "needs lm_quant = \"8bit\" next to a partner"),
+    // bigger cards and unified memory
+    ("qwen3-4b", "Qwen/Qwen3-4B", 8.0, "12 GB+ card: the best mid-size commander"),
+    ("phi4-mini", "microsoft/Phi-4-mini-instruct", 7.7, "12 GB+ card"),
+    ("olmo2-7b", "allenai/OLMo-2-1124-7B-Instruct", 14.6, "20 GB+ card"),
+    ("qwen2.5-7b", "Qwen/Qwen2.5-7B-Instruct", 15.2, "20 GB+ card"),
+    ("qwen3-8b", "Qwen/Qwen3-8B", 16.4, "24 GB+ card, or mlx-community/Qwen3-8B-4bit (4.6 GB) on a Mac"),
+    ("granite3.3-8b", "ibm-granite/granite-3.3-8b-instruct", 16.3, "24 GB+ card"),
+    ("qwen3-14b", "Qwen/Qwen3-14B", 29.5, "48 GB card, or 8bit on 24 GB, or mlx-community/Qwen3-14B-4bit (8.3 GB)"),
 ];
+
+/// GPU memory in GB, or unified memory on Apple silicon: (gigabytes, description). None when
+/// nothing can be measured (no nvidia-smi, not a Mac).
+fn machine_memory() -> Option<(f32, String)> {
+    if let Ok(o) = std::process::Command::new("nvidia-smi").args(["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"]).output() {
+        let text = String::from_utf8_lossy(&o.stdout);
+        let gpus: Vec<(String, f32)> = text
+            .lines()
+            .filter_map(|l| {
+                let (name, mem) = l.rsplit_once(',')?;
+                Some((name.trim().to_string(), mem.trim().parse::<f32>().ok()? / 1024.0))
+            })
+            .collect();
+        if let Some((name, gb)) = gpus.first() {
+            let more = if gpus.len() > 1 { format!(" x{} (each model gets its own GPU)", gpus.len()) } else { String::new() };
+            return Some((*gb, format!("{name}{more}, {gb:.0} GB GPU memory")));
+        }
+    }
+    if cfg!(target_os = "macos") {
+        if let Ok(o) = std::process::Command::new("sysctl").args(["-n", "hw.memsize"]).output() {
+            if let Ok(bytes) = String::from_utf8_lossy(&o.stdout).trim().parse::<f64>() {
+                let gb = (bytes / 1024f64.powi(3)) as f32;
+                return Some((gb, format!("Apple silicon, {gb:.0} GB unified memory")));
+            }
+        }
+    }
+    None
+}
 
 /// An alias from the catalogue, or a Hugging Face id (`org/name[@rev]`). Anything else is a
 /// typo: refuse it here rather than let the sidecar fail and the battle fall back silently.
@@ -293,12 +329,46 @@ fn vram_desc(cfg: &Config) -> String {
 }
 
 fn models_cmd(cfg: &Config) -> i32 {
+    // what this machine can hold: the sidecar's cap (card - 2 GB, or lm_vram_gb), less ~0.8 GB
+    // of activations and CUDA context; on a Mac, unified memory less what the OS needs
+    let machine = machine_memory();
+    let budget = match (&machine, cfg.lm_vram_gb) {
+        (_, v) if v > 0.0 => v - 0.8,
+        (Some((gb, d)), _) if d.contains("unified") => gb * 0.7,
+        (Some((gb, _)), _) => (gb - 2.0).max(4.0) - 0.8,
+        (None, _) => 8.0 - 2.0 - 0.8,
+    };
+    match &machine {
+        Some((_, d)) => println!("this machine: {d}; room for about {budget:.0} GB of models at once"),
+        None => println!("this machine: no GPU detected; verdicts below assume an 8 GB card"),
+    }
+    println!();
     println!("alias              hugging face id                               bf16  notes");
     for (alias, id, gb, note) in MODELS {
         let pair = if id == &cfg.lm_model_a { cfg_size(&cfg.lm_model_b) } else { cfg_size(&cfg.lm_model_a) };
-        let fits = if gb + pair + 0.8 <= 8.0 { "fits 8 GB with your other model" } else { "too big for 8 GB in bf16 next to your other model" };
+        let fits = if gb + pair <= budget {
+            "fits next to your other model"
+        } else {
+            "too big next to your other model (try lm_quant = \"8bit\", or a 4-bit MLX repo)"
+        };
         let mark = if id == &cfg.lm_model_a || id == &cfg.lm_model_b { "*" } else { " " };
         println!("{mark}{:<17} {:<44} {:>4.1}GB  {}{}{}", alias, id, gb, note, if note.is_empty() { "" } else { "; " }, fits);
+    }
+    // the strongest balanced pair that fits: maximise the smaller model, then the total,
+    // from different families so the fight is between two styles
+    let mut best: Option<(&str, &str, f32, f32)> = None;
+    for (i, a) in MODELS.iter().enumerate() {
+        for b in MODELS.iter().skip(i + 1) {
+            let (total, small) = (a.2 + b.2, a.2.min(b.2));
+            let same_family = a.1.split('/').next() == b.1.split('/').next();
+            let better = best.is_none_or(|(_, _, s, t)| small > s || (small == s && total > t));
+            if total <= budget && !same_family && better {
+                best = Some((a.0, b.0, small, total));
+            }
+        }
+    }
+    if let Some((a, b, _, t)) = best {
+        println!("\nstrongest balanced pair for this machine: dogfight --zorb {a} --krell {b}   ({t:.1} GB)");
     }
     println!("\n* = current pair ({} vs {}).", cfg.lm_model_a, cfg.lm_model_b);
     println!("all of these are ungated (no licence click-through, no token).");

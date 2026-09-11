@@ -61,10 +61,10 @@ tolerance = 5
 # check the setup with `dogfight arena check --load`.
 ufo_pilots = "builtin"
 
-# Language-model commanders. Defaults fit an 8 GB CUDA card (about 5 GB together).
+# Language-model commanders. Defaults are the smallest pair that plays well (2.2 GB together).
 lm_backend = "auto"                                 # auto = cuda, or mlx on Apple silicon; or `dogfight mlx` / `dogfight cuda`
 lm_model_a = "Qwen/Qwen3-0.6B"                      # team ZORB
-lm_model_b = "HuggingFaceTB/SmolLM2-1.7B-Instruct"  # team KRELL
+lm_model_b = "HuggingFaceTB/SmolLM2-360M-Instruct"  # team KRELL
 lm_vram_gb = "auto"                                 # CUDA memory cap for the sidecar: auto = your card's memory
                                                     # minus 2 GB (6 GB on an 8 GB card), or a number of GB
 lm_quant = "none"                                   # cuda: none | 8bit | 4bit (bitsandbytes) for bigger models
@@ -92,7 +92,7 @@ impl Default for Config {
             ufo_pilots: "builtin".into(),
             lm_backend: "auto".into(),
             lm_model_a: "Qwen/Qwen3-0.6B".into(),
-            lm_model_b: "HuggingFaceTB/SmolLM2-1.7B-Instruct".into(),
+            lm_model_b: "HuggingFaceTB/SmolLM2-360M-Instruct".into(),
             lm_vram_gb: 0.0, // 0 = auto
             lm_quant: "none".into(),
             lm_python: "python3".into(),

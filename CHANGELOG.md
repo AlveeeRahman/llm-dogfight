@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1 — 2026-09-11
+
+- Catalogue extended to 12, 20, 24 and 48 GB tiers (Qwen3 4B/8B/14B, Phi-4-mini, OLMo 2 7B,
+  Qwen2.5 7B, Granite 3.3 8B), all ungated; `dogfight models` now measures the machine's GPU
+  or unified memory and names the strongest balanced pair it can hold.
+- Two GPUs: each commander gets its own card.
+- Default pair is now the smallest good fight, Qwen3-0.6B vs SmolLM2-360M (2.2 GB); the 1.7B
+  SmolLM2 stays one alias away.
+- README rewritten for the release.
+
 ## 0.4.0 — 2026-09-10
 
 - Renamed: the project is **LLM Dogfight**, the command is `dogfight`, the crate `llm-dogfight`.

@@ -1,33 +1,50 @@
+<div align="center">
+
 # LLM Dogfight
 
-![LLM Dogfight: two saucer teams dogfighting over a sleeping city](eval/snapshots/ufo.png)
+**A UFO dogfight in your terminal, flown by two small language models running on your own machine.**
 
-**A UFO dogfight in your terminal, flown by two small language models running on your own
-machine.** Type `dogfight`. Team ZORB and team KRELL, each commanded by a different local model,
+[![ci](https://github.com/AlveeeRahman/llm-dogfight/actions/workflows/ci.yml/badge.svg)](https://github.com/AlveeeRahman/llm-dogfight/actions/workflows/ci.yml)
+[![models on Hugging Face](https://github.com/AlveeeRahman/llm-dogfight/actions/workflows/models.yml/badge.svg)](https://github.com/AlveeeRahman/llm-dogfight/actions/workflows/models.yml)
+[![release](https://img.shields.io/github/v/release/AlveeeRahman/llm-dogfight?display_name=tag)](https://github.com/AlveeeRahman/llm-dogfight/releases)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+![LLM Dogfight: two saucer teams over a sleeping city](eval/snapshots/ufo.png)
+
+</div>
+
+Type `dogfight`. Team **ZORB** and team **KRELL**, each commanded by a different local model,
 start fighting over a sleeping city: they chase, retreat, steal cows, shout at each other, and
 learn from every saucer they lose. Any key ends it.
 
-Works in the default Ubuntu terminal (GNOME Terminal / Ptyxis) and any other truecolor
-terminal, on Linux and macOS, with no graphics protocol: it is plain text, drawn with
-half-blocks and braille. The binary is a 0.7 MB Rust program with one dependency; the models
-run in a small Python sidecar on CUDA or Apple MLX and fit an 8 GB GPU.
+- **Runs anywhere text runs.** Plain truecolor text (half-blocks and braille), no graphics
+  protocol: the default Ubuntu terminal, GNOME Terminal, Ptyxis, kitty, iTerm2, Ghostty, on
+  Linux and macOS.
+- **Small and safe.** A 0.8 MB Rust binary with one dependency; the models live in a Python
+  sidecar on CUDA or Apple MLX. Everything a model says is filtered before it reaches your
+  terminal. `dogfight remove` leaves nothing behind.
+- **Scales with your machine.** The defaults need 2.2 GB and fit any CUDA card; `dogfight models` measures
+  your GPU or unified memory and names the strongest pair it can hold, up to 14B on big cards
+  and Macs.
+- **Checked continuously.** Every push runs lint, audit, benchmark and terminal harness on
+  Linux and macOS; a weekly job talks to Hugging Face to confirm every catalogue model is
+  still public and loads.
 
 ## Quick start
 
 ```sh
-# 1. the tool (Rust toolchain: https://rustup.rs), or a release binary from the Releases page
+# 1. the tool (needs the Rust toolchain from https://rustup.rs), or a binary from Releases
 cargo install --git https://github.com/AlveeeRahman/llm-dogfight
 
-# 2. a model runtime (one of these)
-pip install torch transformers    # NVIDIA GPU with 8 GB or more (a CUDA build of torch)
+# 2. a model runtime, one of:
+pip install torch transformers    # NVIDIA GPU, 8 GB or more (a CUDA build of torch)
 pip install mlx-lm                # Apple silicon Mac
 
 # 3. play
-dogfight                           # first run downloads the two default models (~5 GB)
+dogfight                          # first run downloads the two default models (2.2 GB)
 ```
 
-No GPU? `dogfight ufo` runs the same dogfight with the built-in pilots and needs nothing but
-the binary.
+No GPU? `dogfight ufo` runs the same fight with the built-in pilots and needs nothing else.
 
 ## Commands
 
@@ -37,31 +54,75 @@ the binary.
 | `dogfight cuda` / `dogfight mlx` | start a battle with the backend chosen by hand |
 | `dogfight evolve` | start a battle where a genetic algorithm also evolves each team's tactics |
 | `dogfight ufo` | the built-in pilots: no models, no GPU |
-| `dogfight models` | the model catalogue and what fits your GPU |
-| `dogfight --zorb MODEL --krell MODEL` | pick the two commanders (an alias from the catalogue or any Hugging Face id) |
+| `dogfight models` | the catalogue, what fits your machine, and the strongest pair it can hold |
+| `dogfight --zorb MODEL --krell MODEL` | choose the two commanders (a catalogue alias or any Hugging Face id) |
 | `dogfight arena check --load` | verify Python, GPU and models; load both and time a decision |
 | `dogfight arena pull` | download the models ahead of time |
-| `dogfight arena lessons` | what each commander has learned so far |
+| `dogfight arena lessons` | what each commander has learned; the evolved doctrines |
 | `dogfight reset model \| score \| all` | forget the lessons, the games won, or both |
-| `dogfight install` / `dogfight uninstall` | optional screensaver mode: play whenever your shell sits idle |
-| `dogfight remove` | delete everything dogfight put on the machine: config, memories, downloaded models, itself |
+| `dogfight install` / `dogfight uninstall` | screensaver mode: play whenever your shell sits idle |
+| `dogfight remove` | delete everything the tool put on the machine, including itself |
 
-Options for a battle: `--lessons on|off`, `--fps N`, `--seed N`, `--duration SECS`,
-`--perf FILE`. `dogfight --help` lists everything.
+Battle options: `--lessons on|off`, `--fps N`, `--seed N`, `--duration SECS`, `--perf FILE`.
+`dogfight --help` lists everything.
 
 ## Recommended matchups
 
-Pairs the author played through many full games on an RTX 4000 Ada. Every one of them is a
-proper fight: both sides score, lead changes happen, and the models' habits show.
+Pairs played through many full games on an RTX 4000 Ada. Each is a proper fight: both sides
+score, the lead changes, and the models' characters show.
 
 ```sh
-dogfight --zorb qwen3-0.6b    --krell smollm2-1.7b    # the defaults, 4.6 GB: Qwen's aggression vs SmolLM2's caution
-dogfight --zorb qwen3-0.6b    --krell smollm2-360m    # 2.2 GB, decisions in a tenth of a second, fast and messy
+dogfight --zorb qwen3-0.6b    --krell smollm2-360m    # the defaults, 2.2 GB: decisions in a tenth of a second, fast and messy
+dogfight --zorb qwen3-0.6b    --krell smollm2-1.7b    # 4.6 GB: Qwen's aggression vs SmolLM2's caution
 dogfight --zorb qwen3-0.6b    --krell gemma3-1b       # 3.5 GB, the most even of the small pairs
-dogfight --zorb granite3.3-2b --krell qwen3-1.7b      # 9.2 GB, the smartest pair; needs a card above 8 GB or lm_quant = "8bit"
+dogfight --zorb granite3.3-2b --krell qwen3-1.7b      # 9.2 GB, the smartest small pair; a card above 8 GB or lm_quant = "8bit"
 ```
 
 Add `evolve` to any of them (`dogfight evolve --zorb ... --krell ...`) to let the tactics evolve.
+
+## Models
+
+Every catalogue model is **ungated**: no licence click-through, no account, no token.
+`dogfight models` prints the table below with a verdict for *your* machine and the strongest
+balanced pair it can hold.
+
+| alias | model | bf16 | for |
+|---|---|---|---|
+| `qwen3-0.6b` | Qwen/Qwen3-0.6B | 1.5 GB | default for ZORB; fast and decisive |
+| `smollm2-1.7b` | HuggingFaceTB/SmolLM2-1.7B-Instruct | 3.4 GB | the classic KRELL; good instruction following |
+| `qwen3-1.7b` | Qwen/Qwen3-1.7B | 4.1 GB | the strongest small Qwen |
+| `qwen2.5-0.5b`, `qwen2.5-1.5b` | Qwen 2.5 Instruct | 1.0, 3.1 GB | |
+| `gemma3-1b` | unsloth/gemma-3-1b-it | 2.0 GB | Gemma 3, ungated mirror |
+| `lfm2-1.2b`, `lfm2-700m` | Liquid AI LFM2 | 2.3, 1.5 GB | built for on-device use |
+| `olmo2-1b` | allenai/OLMo-2-0425-1B-Instruct | 3.0 GB | fully open recipe; likes cows |
+| `falcon3-1b` | tiiuae/Falcon3-1B-Instruct | 3.3 GB | |
+| `smollm2-360m` | HuggingFaceTB/SmolLM2-360M-Instruct | 0.7 GB | default for KRELL; tiny and fast |
+| `danube3-500m` | h2oai/h2o-danube3-500m-chat | 1.0 GB | sub-1B: fast, often skips the order format |
+| `deepseek-r1-1.5b` | DeepSeek-R1-Distill-Qwen-1.5B | 3.6 GB | thinks out loud; slow |
+| `granite3.3-2b`, `smollm3-3b`, `qwen2.5-3b` | IBM Granite 3.3 2B, SmolLM3 3B, Qwen2.5 3B | 5.1, 6.2, 6.2 GB | 12 GB cards, or `lm_quant = "8bit"` on 8 GB |
+| `qwen3-4b`, `phi4-mini` | Qwen3 4B, Phi-4-mini | 8.0, 7.7 GB | 12 GB+ cards; the best mid-size commanders |
+| `olmo2-7b`, `qwen2.5-7b` | OLMo 2 7B, Qwen2.5 7B | 14.6, 15.2 GB | 20 GB+ cards |
+| `qwen3-8b`, `granite3.3-8b` | Qwen3 8B, Granite 3.3 8B | 16.4, 16.3 GB | 24 GB+ cards |
+| `qwen3-14b` | Qwen3 14B | 29.5 GB | 48 GB cards, or `8bit` on 24 GB |
+
+Sizes are bf16 safetensors from the Hugging Face API, September 2026. Any Hugging Face model
+with a chat template and safetensors weights works by id; append `@<commit>` to pin the weights.
+
+### Bigger machines
+
+The sidecar caps itself at your card's memory minus 2 GB (`lm_vram_gb`), so a bigger card
+simply allows bigger pairs, and two GPUs get one model each. On Apple silicon the models share
+unified memory with everything else; the `mlx-community/*-4bit` builds are the efficient
+choice there: `Qwen3-8B-4bit` is 4.6 GB, `Qwen3-14B-4bit` 8.3 GB.
+
+```sh
+dogfight --zorb qwen3-4b  --krell phi4-mini                                  # 16 GB card, 15.7 GB
+dogfight --zorb qwen3-8b  --krell olmo2-7b                                   # 32 GB+ card, 31 GB
+dogfight mlx --zorb mlx-community/Qwen3-8B-4bit --krell mlx-community/gemma-3-4b-it-4bit   # 16 GB Mac
+```
+
+If a pair does not fit, the error names the cap and the ways around it: raise `lm_vram_gb`,
+set `lm_quant = "8bit"` (needs `pip install bitsandbytes`), or pick a 4-bit MLX build.
 
 ## Rules of a battle
 
@@ -81,7 +142,7 @@ Add `evolve` to any of them (`dogfight evolve --zorb ... --krell ...`) to let th
    answers with one order per saucer: `attack E4`, `hunt` (attack the nearest), `flee`, or
    `abduct C1`. There is no idle order; anything else the model invents becomes `hunt`. A
    saucer keeps its last order until a new one arrives, and an abduction in progress is seen
-   through unless the ship is in danger. The orders are flown by the same steering code as the
+   through unless the ship is in danger. Orders are flown by the same steering code as the
    built-in pilots: lead pursuit, orbiting at range, jinking, ally separation.
 7. **Cries and lessons.** When a team loses a saucer its commander shouts a battle cry shown
    in the HUD, and with lessons on (`lm_evolve`, default) it also gets the post-mortem and
@@ -121,13 +182,13 @@ maps those onto a game and drops the training:
 
 | AutoSafe | here |
 |---|---|
-| threat model | the doctrine bounds: what counts as a losing order (fleeing healthy, mass retreat, beaming under fire) is defined up front, in numbers |
+| threat model | the doctrine bounds: what counts as a losing order (fleeing healthy, mass retreat) is defined up front, in numbers |
 | risky-trajectory simulation | the battle itself; every destroyed saucer is a risky trajectory, logged with its full context (killer, range, order, time flown damaged, how outnumbered) |
 | reflection into safe actions | the post-mortem prompt after each loss and each lost game, whose one-line answer becomes a lesson in the model's prompt |
 | safe-action enforcement | `apply_doctrine`: an order outside the bounds is replaced before it is flown |
 | training | none; the models are never fine-tuned. What improves instead is the bound set, by the genetic algorithm below |
 
-The models stay small and untouched, and the safety envelope, not the model, is what learns.
+The models stay small and untouched; the safety envelope, not the model, is what learns.
 
 ## The genetic algorithm (`dogfight evolve`)
 
@@ -140,90 +201,32 @@ One evolver, both teams in parallel, entirely in Rust, no extra model calls.
 - **Evaluation.** One doctrine is active per team at a time. Its window closes after 90 s of
   play or when a game ends. Fitness is (kills − losses + ½ cows) gained during the window,
   plus 6 for winning the game or minus 6 for losing it, divided by the window's minutes. A
-  doctrine that is evaluated again keeps a running mean, so one lucky window does not decide.
+  doctrine evaluated again keeps a running mean, so one lucky window does not decide.
 - **Selection and breeding.** When all six have a score, the population is sorted; the top
   three survive, the bottom three are replaced by children: uniform crossover of two random
   survivors, then Gaussian mutation of each gene with 60 % probability and a standard
-  deviation of 12 % of that gene's range, clamped to the bounds (`brave_hp` is kept at least
+  deviation of 12 % of that gene's range, clamped to the bounds (`brave_hp` stays at least
   10 above `flee_hp`). Survivors are re-evaluated in the next generation; the champion plays
   first so a new session starts from the best-known doctrine.
 - **Feedback to the model.** The active doctrine, its generation and the number of corrected
-  orders are in every prompt, and the HUD shows both teams' doctrines and generation.
+  orders are in every prompt; the HUD shows both teams' doctrines and generations.
 
-Each team evolves on its own record: the two populations are separate files with separate
-fitness histories, scored on the same clock, so a doctrine that works for a cautious model is
-not imposed on an aggressive one.
-
-## Models
-
-The defaults are `Qwen/Qwen3-0.6B` for ZORB and `HuggingFaceTB/SmolLM2-1.7B-Instruct` for
-KRELL: two families, both ungated, 4.6 GB of GPU memory together. `dogfight models` prints the
-catalogue with sizes and whether each entry fits 8 GB next to your other model. Every listed
-model is **ungated**: no licence click-through, no token.
-
-| alias | model | bf16 | notes |
-|---|---|---|---|
-| `qwen3-0.6b` | Qwen/Qwen3-0.6B | 1.5 GB | default for ZORB; fast and decisive |
-| `qwen3-1.7b` | Qwen/Qwen3-1.7B | 4.1 GB | stronger Qwen; pair it with a small partner |
-| `qwen2.5-0.5b` | Qwen/Qwen2.5-0.5B-Instruct | 1.0 GB | tiny and quick |
-| `qwen2.5-1.5b` | Qwen/Qwen2.5-1.5B-Instruct | 3.1 GB | |
-| `smollm2-360m` | HuggingFaceTB/SmolLM2-360M-Instruct | 0.7 GB | under 1B: often skips the order format |
-| `smollm2-1.7b` | HuggingFaceTB/SmolLM2-1.7B-Instruct | 3.4 GB | default for KRELL |
-| `gemma3-1b` | unsloth/gemma-3-1b-it | 2.0 GB | Google's Gemma 3 1B, ungated mirror |
-| `lfm2-1.2b` | LiquidAI/LFM2-1.2B | 2.3 GB | Liquid AI, built for on-device use |
-| `lfm2-700m` | LiquidAI/LFM2-700M | 1.5 GB | under 1B: often skips the order format |
-| `olmo2-1b` | allenai/OLMo-2-0425-1B-Instruct | 3.0 GB | fully open training recipe; likes to abduct |
-| `falcon3-1b` | tiiuae/Falcon3-1B-Instruct | 3.3 GB | |
-| `danube3-500m` | h2oai/h2o-danube3-500m-chat | 1.0 GB | under 1B: often skips the order format |
-| `deepseek-r1-1.5b` | deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B | 3.6 GB | thinking model: slower, chatty |
-| `granite3.3-2b` | ibm-granite/granite-3.3-2b-instruct | 5.1 GB | `lm_quant = "8bit"` next to a partner |
-| `smollm3-3b` | HuggingFaceTB/SmolLM3-3B | 6.2 GB | `lm_quant = "8bit"` next to a partner |
-| `qwen2.5-3b` | Qwen/Qwen2.5-3B-Instruct | 6.2 GB | `lm_quant = "8bit"` next to a partner |
-
-```sh
-dogfight --zorb lfm2-1.2b --krell gemma3-1b       # try a pair once
-dogfight arena check --load                        # confirm both load and see the peak GPU memory
-```
-
-The sidecar caps itself at your card's memory minus 2 GB (`lm_vram_gb`), so a bigger card
-simply allows bigger pairs; an out-of-memory error names the cap and the ways around it.
-Pairs played through full battles on an RTX 4000 Ada (20 GB) while this was written:
-
-```sh
-dogfight --zorb qwen3-0.6b --krell smollm2-1.7b         # the defaults, 4.6 GB
-dogfight --zorb qwen3-0.6b --krell gemma3-1b            # 3.6 GB
-dogfight --zorb deepseek-r1-1.5b --krell qwen3-1.7b     # 7.9 GB: a card above 8 GB, or lm_quant = "8bit"
-```
-
-An alias that is not in the catalogue is refused with a hint rather than started; a Hugging
-Face id (`org/name`) is always accepted as typed.
-
-No Hugging Face account or token is needed for any of them. If a download fails with
-"rate-limiting anonymous downloads (HTTP 429)", Hugging Face is throttling your IP after many
-anonymous requests; wait a few minutes, or set `HF_TOKEN` to a free read token for a higher
-limit. To keep a pair, set `lm_model_a` and `lm_model_b` in the config. Any Hugging Face model with
-a chat template and safetensors weights works; append `@<commit>` to pin the weights. On MLX
-the same ids work through mlx-lm, and the `mlx-community/*-4bit` repos are smaller and faster.
-Sizes above are bf16 safetensors as reported by the Hugging Face API in September 2026. The
-defaults and the 1B-class entries (Gemma 3, LFM2, OLMo 2, Falcon3, danube3, SmolLM2 360M,
-Qwen2.5 0.5B) were each loaded and asked for orders; the 1B-and-up models answer in the
-format almost every time, the sub-1B ones often don't (a saucer without a new order keeps its
-last one, so the fight goes on either way). The 3B-class entries are listed on size alone. Models whose chat template has no system role
-(h2o-danube, Gemma 2) get the system prompt folded into the user turn automatically.
+Each team evolves on its own record: two population files, two fitness histories, scored on
+the same clock, so a doctrine that suits a cautious model is never imposed on an aggressive one.
 
 ## Screensaver mode
 
 ```sh
-dogfight install                  # bash, zsh or fish: play when the prompt has been idle
-dogfight pause 60                 # quiet for an hour, e.g. during a screen share
-dogfight uninstall                # remove the hook again
+dogfight install                 # bash, zsh or fish: play when the prompt has been idle
+dogfight pause 60                # quiet for an hour, e.g. during a screen share
+dogfight uninstall               # remove the hook again
 ```
 
 `install` appends a marked block to your shell rc file (with a timestamped backup). A tiny
 watcher (about 1 MB) sleeps in each shell and wakes the saver after `idle_seconds`; it only
 fires when the shell is sitting at its prompt, so builds and editors are never interrupted.
-Any key restores your prompt with the half-typed line intact. By default the screensaver runs
-the built-in pilots (`scenes = ["ufo"]`); set `scenes = ["ufo-battle"]` to let the models play
+Any key restores your prompt with the half-typed line intact. The screensaver runs the
+built-in pilots by default (`scenes = ["ufo"]`); `scenes = ["ufo-battle"]` lets the models play
 while you are away.
 
 ## Configuration
@@ -233,7 +236,7 @@ while you are away.
 | key | default | meaning |
 |---|---|---|
 | `lm_backend` | `auto` | `cuda`, `mlx`, or `auto` (MLX on Apple silicon, CUDA elsewhere) |
-| `lm_model_a`, `lm_model_b` | Qwen3-0.6B, SmolLM2-1.7B | the two commanders |
+| `lm_model_a`, `lm_model_b` | Qwen3-0.6B, SmolLM2-360M | the two commanders |
 | `lm_vram_gb` | `auto` | GPU memory cap for the sidecar: the card's memory minus 2 GB, or a number of GB |
 | `lm_quant` | `none` | `8bit` or `4bit` via bitsandbytes for bigger pairs (CUDA) |
 | `lm_evolve` | true | write and use lessons after each loss |
@@ -256,7 +259,7 @@ frame gap and CPU share. If your terminal struggles, set `fps = 30`.
 
 ## Security and quality
 
-dogfight takes over your terminal, so it is built to be small, memory-safe and auditable:
+The tool takes over your terminal, so it is built to be small, memory-safe and auditable:
 
 - one dependency (`libc`); `cargo audit`, `cargo clippy -D warnings`, `cargo fmt --check` and
   `--locked` builds are CI gates; every `unsafe` block carries a justification that clippy
@@ -267,13 +270,19 @@ dogfight takes over your terminal, so it is built to be small, memory-safe and a
   `huggingface_hub` (safetensors, no remote code), pinnable to a commit; it passes `bandit`
   and `ruff`;
 - the terminal is restored on every exit path, including SIGTERM and panics;
-- `dogfight remove` deletes exactly what dogfight created: its config, state and data dirs, the
-  rc-file backups from `dogfight install`, the models it downloaded (only those; other files in
-  the Hugging Face cache stay) and the binary. It lists everything and asks first;
-  `--keep-models` keeps the weights, `--yes` skips the question.
+- `dogfight remove` deletes exactly what the tool created.
 
-Details and the threat model: [SECURITY.md](SECURITY.md). Run the whole gate locally with
-`scripts/qa.sh --full`.
+Details and the threat model: [SECURITY.md](SECURITY.md).
+
+## Continuous integration and delivery
+
+| workflow | when | what |
+|---|---|---|
+| **ci** | every push and pull request | rustfmt, clippy with every lint as an error, `cargo audit`, locked build, frame benchmark against locked thresholds, the pty harness across bash, zsh and fish, the sidecar tests, `bandit` and `ruff`; the same on macOS |
+| **ci › release** | every `v*` tag | builds `dogfight` for Linux x86_64 and macOS Apple silicon, packages tarballs with SHA-256 sums and publishes a GitHub Release with generated notes |
+| **models** | weekly, and on demand | pulls the default pair from Hugging Face on a clean runner and checks that every catalogue model is public and loadable, using a Hugging Face token stored as a repository secret |
+
+Run the whole gate locally with `scripts/qa.sh --full`.
 
 ## Development
 
@@ -284,16 +293,8 @@ dogfight snapshot --scene ufo --out u.ansi && python3 eval/ansi2png.py u.ansi u.
 ```
 
 How it is put together, from the SIGALRM idle wake to the sidecar protocol and the genetic
-evolver: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Release history: [CHANGELOG.md](CHANGELOG.md).
-
-## Known limits
-
-- Character cells, not pixels: a maximised terminal gives 200×110 pixels. Sextant and octant
-  characters could quadruple that on recent terminals; not done yet.
-- The commanders are 0.6B to 1.7B models. They misread the field, forget a saucer or echo the
-  enemy's cry now and then; the steering layer keeps the saucers flying sensibly regardless.
-- The macOS watcher and the MLX backend compile and are unit-tested but have not been run on a
-  Mac yet.
-- bash shows the cursor at column 0 after waking until the first keystroke; the line is intact.
+evolver: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Release history:
+[CHANGELOG.md](CHANGELOG.md). Contributions are welcome through pull requests; the CI gate is
+the review's first step.
 
 MIT licensed.
