@@ -281,6 +281,9 @@ The tool takes over your terminal, so it is built to be small, memory-safe and e
 - the binary never opens a network connection; the sidecar downloads models through
   `huggingface_hub` (safetensors, no remote code), pinnable to a commit; it passes `bandit`
   and `ruff`;
+- the workflows run with a read-only token, every action is pinned to a commit SHA, and the
+  two jobs that hold the Hugging Face token install their Python dependencies from a
+  hash-pinned set and expose the token only to the step that uploads;
 - the terminal is restored on every exit path, including SIGTERM and panics;
 - `dogfight remove` deletes exactly what the tool created.
 

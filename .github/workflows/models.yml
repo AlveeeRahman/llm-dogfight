@@ -1,40 +1,59 @@
 name: models
 # The catalogue is only useful while its models stay public and loadable. Once a week (and on
 # demand) fetch the two defaults from Hugging Face on a CPU runner: a model that goes gated,
-# renamed or private shows up here before users hit it. Uses the HF_TOKEN secret when one is
-# set (higher rate limit); works without it.
+# renamed or private shows up here before users hit it. The HF_TOKEN secret is optional: it
+# raises the anonymous rate limit. It is exposed only to the two steps that talk to Hugging
+# Face, after the (hash-pinned) dependencies are installed, and it is never printed.
 on:
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   pull-defaults:
     runs-on: ubuntu-24.04
     env:
-      HF_TOKEN: ${{ secrets.HF_TOKEN }}
       HF_HUB_DISABLE_PROGRESS_BARS: "1"
     steps:
-      - uses: actions/checkout@v4
-      - run: pip install --quiet huggingface_hub
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: install pinned dependencies (no secrets in this step)
+        run: python3 -m pip install --quiet --require-hashes -r .github/requirements-hf.txt
       - name: default pair is public and complete
-        run: python3 agents/arena.py --pull
-      - name: catalogue entries are public
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          set -euo pipefail
+          if [ -n "${HF_TOKEN:-}" ]; then echo "Hugging Face: authenticated"; else echo "Hugging Face: anonymous (HF_TOKEN not set; rate-limited)"; fi
+          python3 agents/arena.py --pull
+      - name: catalogue entries are public
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
           python3 - <<'EOF'
-          import json, re, urllib.request, os, sys
-          src = open("src/main.rs").read()
-          ids = re.findall(r'\("([a-z0-9.\-]+)", "([^"]+)", ([0-9.]+), "[^"]*"\)', src)
+          import json, os, re, sys, urllib.request
+          src = open("src/main.rs", encoding="utf-8").read()
+          ids = re.findall(r'\("([a-z0-9.\-]+)", "([^"]+)", ([0-9.]+), "(?:[^"\\]|\\.)*"\)', src)
+          if not ids:
+              sys.exit("no catalogue entries parsed from src/main.rs")
+          token = os.environ.get("HF_TOKEN", "")
+          # Exactly `Authorization: Bearer <token>`; the token itself is never printed.
+          headers = {"Authorization": "Bearer " + token} if token else {}
+          print("authenticated" if token else "anonymous")
           bad = []
-          hdr = {"Authorization": f"Bearer {os.environ['HF_TOKEN']}"} if os.environ.get("HF_TOKEN") else {}
-          for alias, mid, gb in ids:
+          for alias, mid, _gb in ids:
               try:
-                  d = json.load(urllib.request.urlopen(urllib.request.Request(f"https://huggingface.co/api/models/{mid}", headers=hdr), timeout=30))
+                  req = urllib.request.Request(f"https://huggingface.co/api/models/{mid}", headers=headers)
+                  d = json.load(urllib.request.urlopen(req, timeout=30))
                   if d.get("gated") or d.get("private"):
                       bad.append(f"{alias} ({mid}) is gated/private")
+                  else:
+                      print(f"ok {alias} {mid}")
               except Exception as e:
                   bad.append(f"{alias} ({mid}): {e}")
-          print("\n".join(f"ok {a} {m}" for a, m, _ in ids))
           if bad:
               print("\n".join(bad)); sys.exit(1)
           EOF

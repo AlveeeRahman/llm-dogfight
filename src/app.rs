@@ -181,6 +181,7 @@ pub fn run(cfg: &Config, opts: RunOpts) -> i32 {
     let perf_env = std::env::var("DOGFIGHT_PERF").ok();
     let mut perf = Perf::new(opts.perf.as_deref().or(perf_env.as_deref()));
     let mut shot_done = false;
+    let mut shot_error: Option<String> = None;
     // lag guard: a terminal that cannot drain our bytes makes write() block; when that keeps
     // happening, halve the frame rate for a few seconds instead of letting the animation stutter
     let mut slow_writes = 0u32;
@@ -216,7 +217,10 @@ pub fn run(cfg: &Config, opts: RunOpts) -> i32 {
                 let mut full = Encoder::new(true, 0);
                 let mut buf = Vec::new();
                 full.encode(&cv, &mut buf);
-                let _ = std::fs::write(path, buf);
+                // The terminal is in raw mode, so the error is kept and reported after leave().
+                if let Err(e) = std::fs::write(path, buf) {
+                    shot_error = Some(format!("dogfight: cannot write screenshot {path}: {e}"));
+                }
                 shot_done = true;
             }
         }
@@ -288,5 +292,9 @@ pub fn run(cfg: &Config, opts: RunOpts) -> i32 {
     cur.save();
     perf.flush();
     term.leave();
+    if let Some(msg) = shot_error {
+        eprintln!("{msg}");
+        return 1;
+    }
     0
 }

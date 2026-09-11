@@ -36,8 +36,35 @@ class Shell:
                     return True
         return False
     def send(self, b): os.write(self.fd, b)
+    def children(self, name=b"dogfight"):
+        """PIDs of this shell's own child processes whose command is `name`. Only processes we
+        started through this pty are ever signalled; nothing else on the machine is touched."""
+        pids = []
+        try:
+            kids = open(f"/proc/{self.pid}/task/{self.pid}/children").read().split()
+        except OSError:  # kernel without CONFIG_PROC_CHILDREN: fall back to the parent-pid field
+            kids = []
+            for p in os.listdir("/proc"):
+                if p.isdigit():
+                    try:
+                        if open(f"/proc/{p}/stat").read().rsplit(")", 1)[1].split()[1] == str(self.pid): kids.append(p)
+                    except OSError: pass
+        for p in kids:
+            try:
+                if open(f"/proc/{p}/cmdline", "rb").read().split(b"\0", 1)[0] == name: pids.append(int(p))
+            except OSError: pass
+        return pids
     def close(self):
+        # terminate what we started (the shell's dogfight children first, then the shell), then
+        # reap, so a failing check never leaves a saver holding the pty
+        for p in self.children():
+            try: os.kill(p, signal.SIGTERM)
+            except OSError: pass
         try: os.kill(self.pid, signal.SIGKILL)
+        except OSError: pass
+        try: os.waitpid(self.pid, 0)
+        except OSError: pass
+        try: os.close(self.fd)
         except OSError: pass
         if self.rec: self.rec.close()
 
@@ -60,7 +87,14 @@ def check(name, ok, detail=""):
 def test_run_and_restore(tmp):
     print("[run/restore]")
     env = make_env(tmp)
-    sh = Shell("bash", env); sh.pump(1.5, b"demo:~$ ")
+    sh = Shell("bash", env)
+    try:
+        _run_and_restore(sh, tmp)
+    finally:
+        sh.close()
+
+def _run_and_restore(sh, tmp):
+    sh.pump(1.5, b"demo:~$ ")
     sh.send(b"stty -g > before.txt; dogfight run --scene ufo; echo RC_$?; stty -g > after.txt\r")
     started = sh.pump(3.0, ENTER_ALT)
     sh.pump(1.5)
@@ -80,17 +114,14 @@ def test_run_and_restore(tmp):
     #  job control, not dogfight. Fixed 2026-09-10.)
     sh.send(b"dogfight run --scene ufo; echo TERM_DONE; stty -g > after2.txt\r")
     sh.pump(2.0, ENTER_ALT); sh.pump(1.0)
-    for p in os.listdir("/proc"):
-        if p.isdigit():
-            try:
-                if open(f"/proc/{p}/cmdline", "rb").read().startswith(b"dogfight\0run"):
-                    os.kill(int(p), signal.SIGTERM)
-            except OSError: pass
+    targets = sh.children()          # the dogfight we just started, and nothing else
+    check("sigterm_target_is_our_child", len(targets) == 1, f"pids {targets}")
+    for p in targets:
+        os.kill(p, signal.SIGTERM)
     sh.pump(4.0, b"TERM_DONE"); sh.pump(0.5)
     b2 = open(os.path.join(tmp, "after2.txt")).read() if os.path.exists(os.path.join(tmp, "after2.txt")) else "!"
     tail2 = sh.out[sh.out.rfind(ENTER_ALT):]
     check("restore_after_sigterm", b"TERM_DONE" in sh.out and b2 == a and all(x in tail2 for x in RESTORE))
-    sh.close()
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("--record")

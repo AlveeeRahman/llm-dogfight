@@ -5,12 +5,16 @@ on:
     tags: ["v*"]
   pull_request:
 
+# Read-only token for every job; the release job alone raises it to contents: write.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: lint, build, bench, pty harness (Linux)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: sudo apt-get update && sudo apt-get install -y python3-pil python3-numpy
       - run: rustup component add clippy rustfmt
       - run: cargo fmt --check                     # formatting is enforced
@@ -22,13 +26,14 @@ jobs:
       - run: python3 eval/check_bench.py bench.jsonl
       - run: python3 eval/test_terminal.py          # pty harness: start, key exit, screen/termios restore, SIGTERM
       - run: python3 eval/test_arena.py             # sidecar prompt/parse/lessons, no GPU needed
+      - run: python3 eval/test_publish_hf.py        # README link rewriting for the Space card, no network
       - run: pip install --quiet bandit ruff && bandit -q -r agents/ scripts/ && ruff check agents/ eval/test_arena.py scripts/
 
   macos:
     name: build and GPU-free checks (Apple silicon)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: cargo build --release --locked
       - run: ./target/release/dogfight bench --size 200x55 --frames 300 | tee bench.jsonl
       - run: python3 eval/check_bench.py bench.jsonl
@@ -49,7 +54,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: rustup target add ${{ matrix.target }}
       - run: cargo build --release --locked --target ${{ matrix.target }}
       - name: package
@@ -61,7 +66,7 @@ jobs:
           cp "target/${{ matrix.target }}/release/dogfight" README.md LICENSE SECURITY.md "$dir/"
           tar czf "$dir.tar.gz" "$dir"
           shasum -a 256 "$dir.tar.gz" > "$dir.tar.gz.sha256"
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2, SHA-pinned: this step holds the only write permission
         with:
           files: |
             dogfight-*.tar.gz
