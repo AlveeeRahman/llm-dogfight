@@ -58,6 +58,9 @@ saucer. Score is kills plus cows abducted; games won are remembered per model pa
 lasts about a minute and a half. Every kill, reinforcement, abduction and result is one line in
 `~/.local/state/reverie/match.log`.
 
+Saucers fire one bolt at a time: the next shot comes 200 ms after the previous one has hit or
+faded, so a fight is a stream of single shots rather than volleys.
+
 **Commanders.** About once a second each model receives a compact text description of the
 situation (its saucers with hit points, nearest enemy and nearest cow, the enemy's saucers,
 recent events, the enemy's last battle cry) and answers with one order per saucer:

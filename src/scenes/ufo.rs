@@ -38,6 +38,10 @@ const REINFORCE: f32 = 4.0;
 /// seconds between a game's end and the next game
 const GAME_PAUSE: f32 = 10.0;
 const TRAIL: usize = 7;
+/// seconds a bolt flies before fading (covers the laser range with a little margin)
+const BOLT_LIFE: f32 = 1.0;
+/// seconds between a bolt ending and the next shot from the same ship
+const RELOAD: f32 = 0.2;
 
 #[derive(Clone)]
 struct Ship {
@@ -51,6 +55,8 @@ struct Ship {
     alive: bool,
     respawn: f32,
     cooldown: f32,
+    /// bolts of this ship currently in flight (at most one: a ship reloads only after its shot lands or fades)
+    shots: u32,
     order: Order,
     /// who this ship is shooting at (derived from the order each frame)
     target: Option<usize>,
@@ -328,6 +334,7 @@ impl Ufo {
             alive: true,
             respawn: 0.0,
             cooldown: self.rng.range(0.5, 2.0),
+            shots: 0,
             order: Order::Hunt,
             target: None,
             phase: self.rng.range(0.0, TAU),
@@ -595,14 +602,15 @@ impl Ufo {
         if let Some(t) = fire_at {
             let o = self.ships[t].clone();
             let d = self.dist(i, t);
-            if d < range && self.ships[i].cooldown <= 0.0 && me.warp >= 1.0 {
+            // one bolt in the air per ship; the next one RELOAD seconds after it lands or fades
+            if d < range && self.ships[i].cooldown <= 0.0 && self.ships[i].shots == 0 && me.warp >= 1.0 {
                 let bs = s * 22.0;
                 let tt = d / bs;
                 let ax = o.x + o.vx * tt - me.x;
                 let ay = o.y + o.vy * tt - me.y;
                 let an = ay.atan2(ax) + self.rng.gauss() * 0.12;
-                self.bolts.push(Bolt { x: me.x, y: me.y, vx: an.cos() * bs, vy: an.sin() * bs, life: 1.6, team: me.team, from: i });
-                self.ships[i].cooldown = self.rng.range(0.45, 1.2);
+                self.bolts.push(Bolt { x: me.x, y: me.y, vx: an.cos() * bs, vy: an.sin() * bs, life: BOLT_LIFE, team: me.team, from: i });
+                self.ships[i].shots = 1;
             }
         }
         self.ships[i].order = order;
@@ -1535,6 +1543,12 @@ impl Scene for Ufo {
                 }
             }
             if dead {
+                // the shooter may reload: a short, fixed delay keeps the rhythm fluid but never instant
+                let from = self.bolts[i].from;
+                if let Some(sh) = self.ships.get_mut(from) {
+                    sh.shots = sh.shots.saturating_sub(1);
+                    sh.cooldown = RELOAD;
+                }
                 self.bolts.swap_remove(i);
             } else {
                 i += 1;

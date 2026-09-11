@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.6 — 2026-09-10
+
+- One bolt in flight per saucer; the next shot follows 200 ms after the previous one lands or
+  fades (bolts now fade after 1 s). No more volleys.
+
 ## 0.3.5 — 2026-09-10
 
 - The doctrine's flee rules now apply in every battle (default values; `evolve` breeds them),
