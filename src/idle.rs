@@ -66,6 +66,8 @@ struct ProcStat {
     pgrp: i32,
     tpgid: i32,
     sleeping: bool,
+    /// the shell has a child process (a command is running); false when unknown
+    busy: bool,
 }
 
 /// Linux: /proc/<pid>/stat (state, pgrp, tpgid). Zero syscalls beyond one read.
@@ -74,7 +76,11 @@ fn proc_stat(pid: i32) -> Option<ProcStat> {
     let s = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let rest = &s[s.rfind(')')? + 2..];
     let f: Vec<&str> = rest.split_whitespace().collect();
-    Some(ProcStat { sleeping: f.first()?.starts_with('S'), pgrp: f.get(2)?.parse().ok()?, tpgid: f.get(5)?.parse().ok()? })
+    // A shell at its prompt has no children (the watcher itself is daemonized, so it is not
+    // one). This is independent of how the shell handles process groups, which zsh does
+    // differently from bash and fish on some systems.
+    let busy = fs::read_to_string(format!("/proc/{pid}/task/{pid}/children")).map(|c| !c.trim().is_empty()).unwrap_or(false);
+    Some(ProcStat { sleeping: f.first()?.starts_with('S'), pgrp: f.get(2)?.parse().ok()?, tpgid: f.get(5)?.parse().ok()?, busy })
 }
 
 /// macOS/BSD: `ps` knows the tty's foreground process group (tpgid). One exec per poll
@@ -84,10 +90,12 @@ fn proc_stat(pid: i32) -> Option<ProcStat> {
     let out = std::process::Command::new("ps").args(["-o", "pgid=,tpgid=,stat=", "-p", &pid.to_string()]).output().ok()?;
     let s = String::from_utf8_lossy(&out.stdout);
     let f: Vec<&str> = s.split_whitespace().collect();
+    let busy = std::process::Command::new("pgrep").args(["-P", &pid.to_string()]).output().map(|o| !o.stdout.is_empty()).unwrap_or(false);
     Some(ProcStat {
         pgrp: f.first()?.parse().ok()?,
         tpgid: f.get(1)?.parse().ok()?,
         sleeping: f.get(2).map_or(true, |st| st.starts_with('S') || st.starts_with('I')),
+        busy,
     })
 }
 
@@ -192,7 +200,7 @@ pub fn watch(pid: i32, tty_hint: Option<&str>, idle_override: Option<u64>, daemo
         let mut sleep = 5u64;
         if !paused() {
             if let Some(st) = proc_stat(pid) {
-                let at_prompt = st.tpgid == st.pgrp && st.sleeping;
+                let at_prompt = st.tpgid == st.pgrp && st.sleeping && !st.busy;
                 if at_prompt {
                     let since = now().saturating_sub(atime(&tty).max(last_fire));
                     if since >= idle {

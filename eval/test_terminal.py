@@ -92,7 +92,7 @@ def test_run_and_restore(tmp):
     check("restore_termios", a == b and a != "?")
     # SIGTERM path: dogfight in the FOREGROUND, SIGTERM from outside (as a logout/kill would).
     # (A backgrounded `dogfight &` is stopped by SIGTTOU when it touches the tty — that tested
-    #  job control, not dogfight. Fixed 2026-09-10, see CHANGELOG.)
+    #  job control, not dogfight. Fixed 2026-09-10.)
     sh.send(b"dogfight run --scene ufo; echo TERM_DONE; stty -g > after2.txt\r")
     sh.pump(2.0, ENTER_ALT); sh.pump(1.0)
     for p in os.listdir("/proc"):

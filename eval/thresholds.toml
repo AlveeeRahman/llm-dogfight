@@ -1,7 +1,7 @@
 # LOCKED SURFACE.
 # Written BEFORE any implementation existed (2026-09-10). The build loop may read
 # this file but must never edit it to make a failing candidate pass. Changing a
-# threshold is a human decision, recorded in CHANGELOG.md with a reason.
+# threshold is a human decision, recorded in the commit message with a reason.
 
 [perf]                      # measured by `dogfight bench` (headless, same seed)
 ref_cols = 200              # a maximised GNOME Terminal on a 1080p screen

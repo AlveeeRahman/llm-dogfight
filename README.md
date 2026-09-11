@@ -292,9 +292,6 @@ dogfight bench --size 200x55 | python3 eval/check_bench.py /dev/stdin     # fram
 dogfight snapshot --scene ufo --out u.ansi && python3 eval/ansi2png.py u.ansi u.png   # deterministic frame to PNG
 ```
 
-How it is put together, from the SIGALRM idle wake to the sidecar protocol and the genetic
-evolver: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Release history:
-[CHANGELOG.md](CHANGELOG.md). Contributions are welcome through pull requests; the CI gate is
-the review's first step.
+Contributions are welcome through pull requests; the CI gate is the review's first step.
 
 MIT licensed.
