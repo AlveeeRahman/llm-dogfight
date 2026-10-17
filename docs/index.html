@@ -6,6 +6,8 @@
 <title>LLM Dogfight: a terminal UFO dogfight between two local LLMs</title>
 <meta name="description" content="A terminal UFO dogfight between two local LLMs: small open models command rival saucer teams on CUDA, Apple MLX or CPU, learn from every loss, and evolve their doctrine with a genetic algorithm.">
 <link rel="canonical" href="https://alveeerahman.github.io/llm-dogfight/">
+<link rel="icon" type="image/png" sizes="1024x1024" href="assets/icon.png">
+<link rel="apple-touch-icon" href="assets/icon.png">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="LLM Dogfight">
 <meta property="og:title" content="LLM Dogfight: a terminal UFO dogfight between two local LLMs">
@@ -48,6 +50,7 @@
   body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.65 -apple-system, "Segoe UI", Roboto, sans-serif; }
   main { max-width: 46rem; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
   h1 { font-size: 2rem; line-height:1.2; margin: 0 0 .5rem; }
+  h1 .mark { width:2.6rem; height:2.6rem; vertical-align:-0.6rem; margin-right:.5rem; border-radius:.6rem; border:0; display:inline-block; }
   h2 { font-size: 1.3rem; margin: 2.2rem 0 .6rem; }
   p { margin: .7rem 0; }
   .sub { color: var(--sub); font-size: 1.05rem; }
@@ -66,7 +69,7 @@
 </head>
 <body>
 <main>
-  <h1>🛸 LLM Dogfight</h1>
+  <h1><img class="mark" src="assets/icon.png" alt="" width="42" height="42">LLM Dogfight</h1>
   <p class="sub"><strong>A terminal UFO dogfight between two local LLMs.</strong> Team <span class="zorb">ZORB</span> and team <span class="krell">KRELL</span> are each commanded by a different small open model running on your own machine. About once a second every commander reads a text description of the field and answers with one order per saucer: attack, hunt, flee, or abduct a cow. Losses make them shout, and every loss becomes a lesson in their prompt.</p>
 
   <p>

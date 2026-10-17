@@ -1,5 +1,9 @@
 <div align="center">
 
+<p align="center">
+  <a href="https://alveeerahman.github.io/llm-dogfight/"><img src="docs/assets/icon.png" alt="LLM Dogfight" width="128" height="128"></a>
+</p>
+
 # LLM Dogfight: a terminal UFO dogfight between two local LLMs
 
 **Two small open models, running on your own machine, command rival saucer teams in your terminal.**

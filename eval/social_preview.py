@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 ROOT = Path(__file__).resolve().parent.parent
 SHOT = ROOT / "eval" / "snapshots" / "battle.png"
 OUT = ROOT / "docs" / "assets" / "social-preview.png"
+ICON = ROOT / "docs" / "assets" / "icon.png"
 W, H = 1280, 640
 FONTS = [
     "/usr/share/fonts/truetype/noto/NotoSans-{w}.ttf",
@@ -51,6 +52,8 @@ def main() -> int:
     d.rectangle([0, 0, W, 10], fill=(60, 240, 216))
 
     x = 84
+    icon = Image.open(ICON).convert("RGBA").resize((84, 84), Image.LANCZOS)
+    bg.paste(icon, (x, 44), icon)
     d.text((x, 150), "LLM Dogfight", font=font(88, True), fill=(248, 250, 252))
     d.text((x, 268), "A terminal UFO dogfight", font=font(42, True), fill=(60, 240, 216))
     d.text((x, 322), "between two local LLMs", font=font(42, True), fill=(60, 240, 216))
