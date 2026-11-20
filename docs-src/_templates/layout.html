@@ -1,0 +1,5 @@
+{%- extends "pydata_sphinx_theme/layout.html" %}
+{#- Page titles without the em dash Sphinx puts between the page and the site name. -#}
+{%- block htmltitle %}
+<title>{% if pagename == root_doc %}{{ docstitle|striptags|e }}{% else %}{{ title|striptags|e }} | {{ docstitle|striptags|e }}{% endif %}</title>
+{%- endblock %}
