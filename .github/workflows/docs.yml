@@ -1,0 +1,37 @@
+name: docs
+
+# Builds the documentation (docs-src, Sphinx) with warnings as errors, checks every link of the packed site
+# under the path buildforpeople.dev serves it from, and fails if the committed docs/site/ bundle was not rebuilt.
+on:
+  pull_request:
+    paths:
+      - "docs-src/**"
+      - "README.md"
+      - "docs/site/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Install the docs toolchain
+        run: pip install --require-hashes -r docs-src/requirements.txt
+      - name: Build, pack and check
+        run: sh docs-src/build.sh
+      - name: The committed bundle matches the sources
+        run: |
+          # the bundle hash changes on every pack, so compare the files inside it instead
+          mkdir -p /tmp/fresh /tmp/committed
+          tar -xzf docs/site/*-docs.tar.gz -C /tmp/fresh
+          git show HEAD:"$(ls docs/site/*-docs.tar.gz)" | tar -xz -C /tmp/committed
+          diff -r -q /tmp/committed /tmp/fresh
